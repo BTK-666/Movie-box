@@ -32,6 +32,7 @@ import { optimizeImage, posterImage } from '../src/lib/img';
 import { chapterOf, chapterTitle, setProgress, getProgress } from '../src/lib/novel';
 import { readCache, writeCache } from '../src/lib/useAsync';
 import { fetchMatches, fetchSportNews } from '../src/data/api';
+import { readFileSync } from 'node:fs';
 
 let pass = 0;
 let fail = 0;
@@ -323,6 +324,31 @@ ok(
 );
 ok(homeFeed.heroes.length > 0, `hero carousel resolves (${homeFeed.heroes.length})`);
 ok(homeFeed.heroes.every((h) => h.id && h.title), 'hero entries are real titles');
+
+/* ---------- Stream delivery ---------- */
+// The stream CDN (bcdn.hakunaymatata.com) answers 428 Precondition Required to
+// any `Mozilla/*` User-Agent, which is exactly what an Android WebView sends by
+// default. The TUI worked because reqwest sent the MovieBox app UA. The Android
+// build must therefore override the WebView UA, or every stream fails to load.
+console.log('\n# Stream delivery');
+const capConfig = JSON.parse(
+  readFileSync(new URL('../capacitor.config.json', import.meta.url), 'utf8'),
+);
+const configuredUa: string | undefined = capConfig?.android?.overrideUserAgent;
+ok(!!configuredUa, 'Android build overrides the WebView User-Agent');
+ok(!!configuredUa && !/^Mozilla\//i.test(configuredUa), 'overridden User-Agent is not a browser UA');
+
+const sample = (await fetchStreams('1654274595068805784')).find((s) => /h264|avc/i.test(s.codec));
+if (sample && configuredUa) {
+  const withApp = await fetch(sample.url, { headers: { 'user-agent': configuredUa } });
+  ok(withApp.status === 206 || withApp.status === 200, `CDN serves the stream for the app UA (${withApp.status})`);
+  const withBrowser = await fetch(sample.url, {
+    headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36' },
+  });
+  ok(withBrowser.status === 428, `CDN rejects a browser UA (${withBrowser.status})`);
+} else {
+  ok(false, 'no H.264 stream available to probe the CDN User-Agent rule');
+}
 
 /* ---------- Cache ---------- */
 console.log('\n# Cache');

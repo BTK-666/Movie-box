@@ -74,10 +74,26 @@ Public URL: `https://work-1-cztekbhstulgynne.prod-runtime.all-hands.dev/`
 - **Signed requests are cached and de-duplicated** by `MovieBoxClient`; the
   visitor token is refreshed on a 401. Never call the endpoints directly from a
   screen — go through `src/data/api.ts`.
+- **The stream CDN is User-Agent gated — this is the #1 playback gotcha.**
+  `bcdn.hakunaymatata.com` returns **HTTP 428 Precondition Required** to *any*
+  `Mozilla/*` User-Agent and **206** to a non-Mozilla one (the MovieBox Android
+  UA, `ExoPlayerLib`, `Dalvik`, `okhttp`, or even an empty UA). An Android
+  WebView sends `Mozilla/...` by default, so every `<video>` request 428s and the
+  element reports `MEDIA_ELEMENT_ERROR: Format error` (code 4) — the app then
+  shows "no playable source". The Rust TUI never hit this because reqwest sent
+  the MovieBox app UA. The fix lives in `capacitor.config.json`:
+  `android.overrideUserAgent` sets the WebView UA to the MovieBox app string.
+  `tests/unit.spec.ts` ("Stream delivery") asserts the config is set, that it is
+  not a browser UA, and that the CDN answers 206 for it / 428 for a browser UA.
+  Removing that override silently breaks playback for *every* title.
 - **Movie streams are mostly HEVC.** `fetchStreams` sorts H.264 first for the same
   resolution because HEVC only decodes where the device has a decoder. The player
   probes `canPlayType('hvc1…')` once and, on devices without an HEVC decoder,
   re-ranks H.264 first; it also falls back to the next source when one fails.
+  Measured coverage on the visitor tier: movies ~24/25 have a source (only ~1/25
+  in H.264), series ~3/25. HEVC-only movies are fine once the UA fix is in (the
+  WebView decodes HEVC on most modern Android devices); the codec re-rank is only
+  a fallback for devices without an HEVC decoder.
 - **Promo clips are ads and are never played.** When a title is not licensed for
   the visitor tier, MovieBox substitutes a ~23 s H.264 clip from
   `macdn.aoneroom.com/other/...`. `isAdUrl()` in `src/data/api.ts` recognises it
