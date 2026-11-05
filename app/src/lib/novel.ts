@@ -16,6 +16,14 @@ const OPENERS = [
   'Every road out of the valley was watched, and they all knew it.',
   'The letter had been written in a hand nobody living could claim.',
   'Steel remembers what the hand that wielded it tries to forget.',
+  'The bell in the eastern tower rang once, and then refused to ring again.',
+  'Snow had buried the pass, and with it any hope of an easy answer.',
+  'The market emptied long before the sun went down.',
+  'He had rehearsed this moment a thousand times, and still his hands betrayed him.',
+  'The fire had burned all night, and no one had dared to sleep.',
+  'A stranger arrived at the gate with nothing but a name and a question.',
+  'The river ran red that morning, though no one would say why.',
+  'She woke to the sound of something breaking far below the house.',
 ];
 
 const MIDDLES = [
@@ -27,6 +35,20 @@ const MIDDLES = [
   'They moved before the thought finished forming, which is how survivors are made.',
   'The wound was clean, which was somehow worse than if it had been ragged.',
   'Promises made in the dark have a way of finding the light.',
+  'The corridor narrowed until two could not walk abreast, and the lamps grew thin.',
+  'Every door they passed was locked, and every lock had been turned from the inside.',
+  'He weighed the cost of honesty against the cost of silence, and chose neither.',
+  'The blade was lighter than she remembered, and that frightened her more than the edge.',
+  'Outside, the guards changed shifts, and the gap between them was exactly ninety seconds.',
+  'She had learned to read faces the way others read weather, and this one promised a storm.',
+  'The map ended where the mountains began, which told them everything and nothing.',
+  'A name surfaced, unbidden, and with it a debt that had never been settled.',
+  'The air carried iron and rain, and beneath it something older.',
+  'He counted the footsteps behind him and did not like the number.',
+  'The seal broke cleanly, as though it had been waiting to be opened.',
+  'They had agreed on a signal, and neither of them used it.',
+  'The wound in the wall was fresh, and the dust had not yet settled.',
+  'She set the cup down without drinking, which he noticed and said nothing about.',
 ];
 
 const CLOSERS = [
@@ -36,6 +58,12 @@ const CLOSERS = [
   'The gate closed behind them with a sound like a sentence being passed.',
   'Whatever came next, it would not come quietly.',
   'He kept the token close, and told himself it was only caution.',
+  'The decision was made, and the making of it could not be undone.',
+  'Somewhere far off, a door that had been closed for years began to open.',
+  'They would remember this night, though not for the reasons they expected.',
+  'The last light went out, and the work began in earnest.',
+  'It was not an ending, but it would serve as one for now.',
+  'And the debt, like all debts, found its way home.',
 ];
 
 /** Small deterministic hash so chapter text is stable per (book, chapter). */
@@ -69,13 +97,17 @@ export function chapterTitle(novelId: string, no: number): string {
 export function chapterOf(novel: Novel, no: number): Chapter {
   const h = seedOf(`${novel.id}:${no}:body`);
   const paragraphs: string[] = [];
-  const count = 6 + (h % 4);
+  const count = 9 + (h % 5);
 
   paragraphs.push(OPENERS[h % OPENERS.length]);
   for (let i = 0; i < count; i++) {
+    // Stride through the pool with co-prime steps so a chapter rarely repeats a
+    // line, while staying fully deterministic for a given (book, chapter).
     const a = MIDDLES[(h + i * 7) % MIDDLES.length];
-    const b = MIDDLES[(h + i * 13 + 3) % MIDDLES.length];
-    paragraphs.push(`${a} ${b}`);
+    const b = MIDDLES[(h + i * 11 + 5) % MIDDLES.length];
+    const c = MIDDLES[(h + i * 17 + 9) % MIDDLES.length];
+    const sentence = i % 3 === 2 ? `${a} ${b} ${c}` : `${a} ${b}`;
+    paragraphs.push(sentence);
   }
   paragraphs.push(CLOSERS[h % CLOSERS.length]);
 

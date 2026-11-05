@@ -338,6 +338,17 @@ const configuredUa: string | undefined = capConfig?.android?.overrideUserAgent;
 ok(!!configuredUa, 'Android build overrides the WebView User-Agent');
 ok(!!configuredUa && !/^Mozilla\//i.test(configuredUa), 'overridden User-Agent is not a browser UA');
 
+// The same CDN answers 429 to *any* request that carries a Referer header. A
+// Capacitor WebView serves the app from https://localhost, so media requests
+// would send `Referer: https://localhost/` and every stream would fail with
+// MEDIA_ELEMENT_ERROR code 4. index.html must therefore set a no-referrer
+// policy for the whole document.
+const indexHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+ok(
+  /<meta\s+name="referrer"\s+content="no-referrer"\s*\/?>/i.test(indexHtml),
+  'index.html sends no Referer (WebView media must not leak https://localhost)',
+);
+
 const sample = (await fetchStreams('1654274595068805784')).find((s) => /h264|avc/i.test(s.codec));
 if (sample && configuredUa) {
   const withApp = await fetch(sample.url, { headers: { 'user-agent': configuredUa } });
@@ -346,9 +357,51 @@ if (sample && configuredUa) {
     headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36' },
   });
   ok(withBrowser.status === 428, `CDN rejects a browser UA (${withBrowser.status})`);
+
+  const withReferer = await fetch(sample.url, {
+    headers: { 'user-agent': configuredUa, referer: 'https://localhost/' },
+  });
+  ok(withReferer.status === 429, `CDN rejects a Referer header (${withReferer.status})`);
 } else {
   ok(false, 'no H.264 stream available to probe the CDN User-Agent rule');
 }
+
+/* ---------- Series / anime (UGC fallback) ---------- */
+// `play-info` answers series and anime with the 23 s anti-piracy trap clip on
+// the visitor tier, so the real per-episode files have to come from the UGC
+// collection (`ugc/video/first-by-subject` -> `ugc/collection/download-list`).
+// This is what makes Naruto/One Piece/Breaking Bad playable; without it every
+// series returns zero sources.
+console.log('\n# Series & anime streams (UGC fallback)');
+const seriesProbes: Array<[string, number, number]> = [
+  ['Naruto', 1, 1],
+  ['One Piece', 1, 1],
+  ['Demon Slayer', 1, 1],
+  ['Attack on Titan', 1, 1],
+  ['Breaking Bad', 1, 1],
+];
+for (const [q, se, ep] of seriesProbes) {
+  const hit = (await searchTitles(q))[0];
+  if (!hit) {
+    ok(false, `${q} resolves in search`);
+    continue;
+  }
+  const streams = await fetchStreams(hit.id, se, ep);
+  const real = streams.filter((s) => /bcdn\.hakunaymatata\.com/.test(s.url) && !isAdUrl(s.url));
+  ok(real.length > 0, `${q} S${se}E${ep} resolves a real UGC stream (${real.length})`);
+}
+
+// Every returned URL must be a genuine file, never the trap clip.
+const naruto = (await searchTitles('Naruto'))[0];
+const narutoStreams = naruto ? await fetchStreams(naruto.id, 1, 1) : [];
+ok(
+  narutoStreams.length > 0 && narutoStreams.every((s) => !isAdUrl(s.url) && s.direct),
+  'Naruto episode contains no anti-piracy trap clip',
+);
+ok(
+  narutoStreams.some((s) => /h264|avc/i.test(s.codec)),
+  'Naruto episode offers an H.264 source (plays without an HEVC decoder)',
+);
 
 /* ---------- Cache ---------- */
 console.log('\n# Cache');

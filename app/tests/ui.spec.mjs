@@ -1,9 +1,11 @@
 import { chromium } from 'playwright';
+import { existsSync } from 'node:fs';
 
 const B = process.env.BASE_URL ?? 'http://localhost:5173';
-const b = await chromium.launch(
-  process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {},
-);
+// Prefer an explicit CHROME_PATH, then a system Chromium, and only fall back to
+// Playwright's bundled browser (which may not be installed in this environment).
+const chrome = process.env.CHROME_PATH ?? ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'].find(existsSync);
+const b = await chromium.launch(chrome ? { executablePath: chrome } : {});
 const pg = await b.newPage({ viewport: { width: 390, height: 844 } });
 const errs = [];
 pg.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));

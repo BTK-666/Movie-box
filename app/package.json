@@ -11,7 +11,10 @@
     "test:unit": "node tests/run-unit.mjs",
     "test:ui": "node tests/ui.spec.mjs",
     "test:apk": "node tests/apkpayload.mjs",
-    "test": "npm run test:unit && npm run test:ui"
+    "test": "npm run test:unit && npm run test:media && npm run test:e2e && npm run test:e2e:series && npm run test:ui",
+    "test:media": "node tests/webview-media.mjs",
+    "test:e2e": "node tests/e2e-playback.mjs",
+    "test:e2e:series": "node tests/e2e-series.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",

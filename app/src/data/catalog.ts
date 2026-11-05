@@ -292,6 +292,18 @@ export const NOVELS: Novel[] = [
   { id: 'n4', title: 'Academy of Shadows', author: 'Mira Cole', cover: poster('n4'), chapters: 410, rating: 4.5, genres: ['Fantasy', 'Academy'], synopsis: 'Magic school hides a secret older than the world itself.' },
   { id: 'n5', title: 'The Sword Saint Returns', author: 'Han Jae', cover: poster('n5'), chapters: 720, rating: 4.9, genres: ['Martial Arts', 'Adventure'], synopsis: 'The strongest swordsman is reborn in a world that forgot him.' },
   { id: 'n6', title: 'My Vampire Husband', author: 'Elena Rose', cover: poster('n6'), chapters: 355, rating: 4.4, genres: ['Romance', 'Supernatural'], synopsis: 'She married a stranger. He has been alive for nine centuries.' },
+  { id: 'n7', title: 'The Alchemist\'s Debt', author: 'Ravi Menon', cover: poster('n7'), chapters: 512, rating: 4.6, genres: ['Fantasy', 'Adventure'], synopsis: 'Every transmutation borrows from somewhere. The bill is now due.' },
+  { id: 'n8', title: 'Nine Realms, One Sword', author: 'Cheng Bo', cover: poster('n8'), chapters: 1502, rating: 4.9, genres: ['Xianxia', 'Martial Arts'], synopsis: 'A blade that has cut through nine heavens seeks a tenth.' },
+  { id: 'n9', title: 'The Last Cartographer', author: 'Nadia Voss', cover: poster('n9'), chapters: 268, rating: 4.5, genres: ['Sci-Fi', 'Mystery'], synopsis: 'The maps end at a coastline no ship has ever reached.' },
+  { id: 'n10', title: 'Heir of the Drowned Court', author: 'Mira Cole', cover: poster('n10'), chapters: 604, rating: 4.7, genres: ['Fantasy', 'Royalty'], synopsis: 'The throne lies beneath the tide, and it is still occupied.' },
+  { id: 'n11', title: 'Second Life of a Merchant', author: 'Han Jae', cover: poster('n11'), chapters: 830, rating: 4.6, genres: ['Isekai', 'Business'], synopsis: 'He died broke. He intends to do better with the second run.' },
+  { id: 'n12', title: 'Moonlit Vow', author: 'Elena Rose', cover: poster('n12'), chapters: 342, rating: 4.4, genres: ['Romance', 'Historical'], synopsis: 'A promise made under one moon, broken under the next.' },
+  { id: 'n13', title: 'The Iron Orchard', author: 'Tomas Reyes', cover: poster('n13'), chapters: 456, rating: 4.5, genres: ['Drama', 'War'], synopsis: 'They planted steel where the trees used to stand.' },
+  { id: 'n14', title: 'Whispers in the Code', author: 'Nadia Voss', cover: poster('n14'), chapters: 289, rating: 4.6, genres: ['Cyberpunk', 'Thriller'], synopsis: 'The network started answering questions no one had asked.' },
+  { id: 'n15', title: 'Dragon of the Frozen Peak', author: 'Cheng Bo', cover: poster('n15'), chapters: 1118, rating: 4.8, genres: ['Xianxia', 'Beast Taming'], synopsis: 'The mountain keeps its dragon. The dragon keeps its grudge.' },
+  { id: 'n16', title: 'The Quiet Detective', author: 'Ravi Menon', cover: poster('n16'), chapters: 388, rating: 4.5, genres: ['Mystery', 'Crime'], synopsis: 'He solves cases by saying nothing at all.' },
+  { id: 'n17', title: 'Empress of Ash', author: 'Su Ran', cover: poster('n17'), chapters: 702, rating: 4.7, genres: ['Romance', 'Fantasy'], synopsis: 'She burned the empire to save it, and they crowned her anyway.' },
+  { id: 'n18', title: 'The Starfarer\'s Log', author: 'Tomas Reyes', cover: poster('n18'), chapters: 231, rating: 4.4, genres: ['Sci-Fi', 'Space Opera'], synopsis: 'The ship kept sailing long after the crew stopped answering.' },
 ];
 
 export const CHANNELS: Channel[] = [

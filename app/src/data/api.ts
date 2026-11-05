@@ -340,6 +340,27 @@ export async function fetchDetails(id: string): Promise<MediaDetails> {
         episodeCounts[1] = seNum;
       }
     }
+
+    // Anime and other UGC-backed series often carry no `season-info`. Derive the
+    // episode list from the UGC collection labels so the picker is not empty.
+    if (!seasons) {
+      try {
+        const ugc = await ugcEpisodeCounts(id);
+        if (ugc.seasons) {
+          seasons = ugc.seasons;
+          Object.assign(episodeCounts, ugc.episodeCounts);
+        }
+      } catch {
+        /* fall through to the subject's own count */
+      }
+    }
+    if (!seasons) {
+      const seNum = Number(subject?.seNum ?? 0);
+      if (seNum > 0) {
+        seasons = 1;
+        episodeCounts[1] = seNum;
+      }
+    }
   }
 
   const dubs = (subject?.dubs ?? []).map((d: any) => ({
@@ -430,6 +451,151 @@ const resolutionFromLink = (link?: string) => {
   const m = /(\d{3,4})[pP]/.exec(link ?? '');
   return m ? Number(m[1]) : 0;
 };
+
+/**
+ * UGC fallback for series and anime.
+ *
+ * On the visitor tier `play-info` answers almost every episode with a 23 s
+ * "update your app" trap clip from `macdn.aoneroom.com`. The real per-episode
+ * files are not in that response at all — they live in the UGC collection that
+ * backs the title. The official client resolves them through
+ * `/ugc/video/first-by-subject` (collection id + video count) and then
+ * `/ugc/collection/download-list` (per-page episodes, each with `resources`).
+ * This is the same path AnyFilm uses, and it returns genuine
+ * `bcdn.hakunaymatata.com/resource/...` streams.
+ */
+const UGC_TRAP = /macdn\.aoneroom\.com|please_update|update_app|b164fbfb43/i;
+
+function ugcResourceToStream(res: any): Stream | null {
+  const url = typeof res?.url === 'string' ? res.url : '';
+  if (!url || UGC_TRAP.test(url)) return null;
+
+  const raw = res?.resolutions ?? res?.resolution ?? res?.quality ?? res?.definition;
+  let resolution = Number(String(raw ?? '').split(',')[0].replace(/\D/g, '')) || 0;
+  if (!resolution) {
+    const lower = url.toLowerCase();
+    resolution = lower.includes('1080') ? 1080 : lower.includes('720') ? 720 : lower.includes('480') ? 480 : 720;
+  }
+  const size = Number(String(res?.size ?? '').replace(/\D/g, '')) || 0;
+  return {
+    id: String(res?.id ?? url),
+    url,
+    resolution,
+    quality: qualityOf(resolution),
+    sizeBytes: size,
+    sizeLabel: sizeLabel(size),
+    codec: String(res?.codecName ?? ''),
+    direct: true,
+  };
+}
+
+const ugcFirst = (subjectId: string) =>
+  client
+    .get<any>(`/wefeed-mobile-bff/ugc/video/first-by-subject?subjectId=${subjectId}`)
+    .catch(() => null);
+
+function episodeLabelMatcher(season: number, episode: number) {
+  // Matches the `epTitle` labels the API uses ("S1EP7", "S2EP12", "EP3", …)
+  // without letting EP1 match EP10.
+  return new RegExp(`(?:s0*${season}\\s*)?(?:ep|episode|e|#|\\s|^)0*${episode}(?:[^\\d]|$)`, 'i');
+}
+
+async function ugcEpisodeStreams(subjectId: string, season: number, episode: number): Promise<Stream[]> {
+  const first = await ugcFirst(subjectId);
+  const collectionId = first?.belongToCollection?.collectionId;
+  const videoNum = Number(first?.belongToCollection?.videoNum ?? 0) || 0;
+
+  if (collectionId) {
+    const perPage = 50;
+    const totalPages = Math.max(1, Math.ceil(videoNum / perPage));
+    const match = episodeLabelMatcher(season, episode);
+
+    // Start at the page the cumulative episode count implies, so season 2 does
+    // not have to scan from page 1. Fall back to scanning the rest.
+    const pages: number[] = [];
+    const push = (p: number) => {
+      if (p >= 1 && p <= totalPages && !pages.includes(p)) pages.push(p);
+    };
+    const info = await client
+      .get<any>(`/wefeed-mobile-bff/subject-api/season-info?subjectId=${subjectId}`)
+      .catch(() => null);
+    let offset = 0;
+    for (const s of info?.seasons ?? []) {
+      if (Number(s?.se) >= season) break;
+      offset += Number(s?.maxEp ?? 0) || 0;
+    }
+    push(Math.ceil((offset + episode) / perPage));
+    for (let p = 1; p <= Math.min(totalPages, 12); p++) push(p);
+
+    for (const p of pages) {
+      const dl = await client
+        .get<any>(
+          `/wefeed-mobile-bff/ugc/collection/download-list?collectionId=${collectionId}&page=${p}&perPage=${perPage}`,
+        )
+        .catch(() => null);
+      const items: any[] = dl?.items ?? [];
+      if (!items.length) continue;
+      const item =
+        items.find((it) => match.test(`${it?.epTitle ?? ''} ${it?.title ?? ''}`)) ??
+        (episode === 1 ? items[0] : null);
+      if (!item) continue;
+      const streams = (item?.resources ?? []).map(ugcResourceToStream).filter(Boolean) as Stream[];
+      if (streams.length) return streams;
+    }
+  }
+
+  // Single-video fallback: movies and one-off specials that are UGC-backed.
+  if (first?.ugcVideoId && season <= 1 && episode <= 1) {
+    const dl = await client
+      .get<any>(`/wefeed-mobile-bff/ugc/video/download?ugcVideoId=${first.ugcVideoId}`)
+      .catch(() => null);
+    const out: Stream[] = [];
+    for (const it of dl?.items ?? []) {
+      for (const r of it?.resources ?? []) {
+        const s = ugcResourceToStream(r);
+        if (s) out.push(s);
+      }
+    }
+    if (out.length) return out;
+  }
+
+  return [];
+}
+
+/**
+ * Episode counts for series whose `season-info` is empty or gated, derived from
+ * the UGC collection labels ("S1EP1" … "S2EP12").
+ */
+export async function ugcEpisodeCounts(subjectId: string): Promise<{ seasons: number; episodeCounts: Record<number, number> }> {
+  const first = await ugcFirst(subjectId);
+  const collectionId = first?.belongToCollection?.collectionId;
+  const videoNum = Number(first?.belongToCollection?.videoNum ?? 0) || 0;
+  if (!collectionId || !videoNum) return { seasons: 0, episodeCounts: {} };
+
+  const perPage = 50;
+  const totalPages = Math.max(1, Math.ceil(videoNum / perPage));
+  const episodeCounts: Record<number, number> = {};
+
+  for (let p = 1; p <= Math.min(totalPages, 12); p++) {
+    const dl = await client
+      .get<any>(
+        `/wefeed-mobile-bff/ugc/collection/download-list?collectionId=${collectionId}&page=${p}&perPage=${perPage}`,
+      )
+      .catch(() => null);
+    const items: any[] = dl?.items ?? [];
+    if (!items.length) break;
+    for (const it of items) {
+      const label = `${it?.epTitle ?? ''} ${it?.title ?? ''}`;
+      const m = /s0*(\d+)\s*(?:ep|episode|e|#)0*(\d+)/i.exec(label);
+      const se = m ? Number(m[1]) : 1;
+      const ep = m ? Number(m[2]) : 0;
+      if (ep > 0) episodeCounts[se] = Math.max(episodeCounts[se] ?? 0, ep);
+    }
+  }
+
+  const seasons = Math.max(0, ...Object.keys(episodeCounts).map(Number));
+  return { seasons, episodeCounts };
+}
 
 /**
  * Resolves playable streams for a title.
@@ -525,6 +691,23 @@ export async function fetchStreams(id: string, season = 0, episode = 0): Promise
     }
   } catch {
     /* keep whatever we already have */
+  }
+
+  // Series and anime: the real per-episode files live in the UGC collection, not
+  // in `play-info`. This is the path that makes Naruto/One Piece/etc. playable.
+  if (!found.length) {
+    const se = season > 0 ? season : 1;
+    const ep = episode > 0 ? episode : 1;
+    const ugc = await ugcEpisodeStreams(id, se, ep);
+    for (const s of ugc) add(s);
+    if (!found.length && id) {
+      // The `subjectId` from a search hit is sometimes a dub/localised wrapper;
+      // retry UGC against the canonical subject id from `get`.
+      const canonical = String(subject?.subjectId ?? '');
+      if (canonical && canonical !== id) {
+        for (const s of await ugcEpisodeStreams(canonical, se, ep)) add(s);
+      }
+    }
   }
 
   // MovieBox mostly ships HEVC, which only decodes on devices with an HEVC

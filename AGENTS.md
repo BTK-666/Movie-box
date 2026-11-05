@@ -36,10 +36,18 @@ export PATH=$JAVA_HOME/bin:$PATH
 Tests:
 
 ```bash
-npm run test:unit             # 118 tests: crypto vectors, adapters, live API, ad filtering (Node)
+npm run test:unit             # 124 tests: crypto vectors, adapters, live API, ad filtering (Node)
+npm run test:media            # real-Chromium proof of the WebView media path (Referer fix)
+npm run test:e2e              # boots dist/ and proves a real stream plays end-to-end
 npm run test:ui               # 62 interaction tests (Playwright, 390x844)
-npm test                      # both
+npm test                      # unit + media + e2e + ui
 ```
+
+`test:media` and `test:e2e` drive a system Chromium (`/usr/bin/chromium`) — the
+same engine as the Android WebView — because the emulator here cannot render.
+They serve the built app over `https://localhost` with the app User-Agent, so a
+green run is strong evidence the on-device media path works. Both skip cleanly
+when Chromium is absent.
 
 `npm run test:unit` needs no server. `npm run test:ui` needs a server; point it
 at either one:
@@ -74,18 +82,25 @@ Public URL: `https://work-1-cztekbhstulgynne.prod-runtime.all-hands.dev/`
 - **Signed requests are cached and de-duplicated** by `MovieBoxClient`; the
   visitor token is refreshed on a 401. Never call the endpoints directly from a
   screen — go through `src/data/api.ts`.
-- **The stream CDN is User-Agent gated — this is the #1 playback gotcha.**
-  `bcdn.hakunaymatata.com` returns **HTTP 428 Precondition Required** to *any*
-  `Mozilla/*` User-Agent and **206** to a non-Mozilla one (the MovieBox Android
-  UA, `ExoPlayerLib`, `Dalvik`, `okhttp`, or even an empty UA). An Android
+- **The stream CDN is User-Agent *and* Referer gated — this is the #1 playback
+  gotcha.** `bcdn.hakunaymatata.com` returns **HTTP 428 Precondition Required** to
+  *any* `Mozilla/*` User-Agent and **206** to a non-Mozilla one (the MovieBox
+  Android UA, `ExoPlayerLib`, `Dalvik`, `okhttp`, or even an empty UA). An Android
   WebView sends `Mozilla/...` by default, so every `<video>` request 428s and the
   element reports `MEDIA_ELEMENT_ERROR: Format error` (code 4) — the app then
   shows "no playable source". The Rust TUI never hit this because reqwest sent
-  the MovieBox app UA. The fix lives in `capacitor.config.json`:
+  the MovieBox app UA. Fix 1 lives in `capacitor.config.json`:
   `android.overrideUserAgent` sets the WebView UA to the MovieBox app string.
-  `tests/unit.spec.ts` ("Stream delivery") asserts the config is set, that it is
-  not a browser UA, and that the CDN answers 206 for it / 428 for a browser UA.
-  Removing that override silently breaks playback for *every* title.
+- **The same CDN answers HTTP 429 to *any* request that carries a `Referer`.** A
+  Capacitor WebView serves the app from `https://localhost`, so media requests
+  would otherwise send `Referer: https://localhost/` and every stream fails to
+  load with `MEDIA_ELEMENT_ERROR` code 4 — the "This source failed to load — try
+  another quality" message. Fix 2 is the document-wide
+  `<meta name="referrer" content="no-referrer">` in `index.html`. `test:media`
+  proves both directions: with the meta the CDN request carries no Referer and
+  the stream plays; without it Chromium leaks `https://localhost/` and the stream
+  is blocked. Removing *either* fix silently breaks playback for every title.
+  `tests/unit.spec.ts` ("Stream delivery") asserts both.
 - **Movie streams are mostly HEVC.** `fetchStreams` sorts H.264 first for the same
   resolution because HEVC only decodes where the device has a decoder. The player
   probes `canPlayType('hvc1…')` once and, on devices without an HEVC decoder,
@@ -113,8 +128,17 @@ Public URL: `https://work-1-cztekbhstulgynne.prod-runtime.all-hands.dev/`
 - **The emulator has no KVM here**, so it is extremely slow and the WebView
   renderer can crash (SIGTRAP) under software rendering. A white `screencap` is
   usually the emulator, not the app — a JS-free static page crashes the same way.
-  Verify behaviour in Chromium instead (`npm run test:ui`), or connect to the
-  WebView with `adb forward tcp:9222 localabstract:webview_devtools_remote`.
+  Verify behaviour in Chromium instead (`npm run test:media` / `test:e2e` /
+  `test:ui`), or connect to the WebView with
+  `adb forward tcp:9222 localabstract:webview_devtools_remote`.
+- **Capacitor kills the app when the WebView renderer dies.** The stock
+  `BridgeActivity` returns `false` from `onRenderProcessGone`, so the OS tears
+  down the whole process (observed as
+  `Render process ...'s crash wasn't handled by all associated webviews` on the
+  low-RAM emulator). `MainActivity.java` overrides the callback via a
+  `WebViewListener` to destroy the dead WebView and `recreate()` the activity, so
+  the app recovers instead of vanishing. This is why `MainActivity` is no longer
+  an empty class.
 - Capacitor logs `Unable to read file at path public/plugins` at startup; that
   is benign.
 - **State persists in `localStorage`** under `mb-store-v1`. A fresh install starts
@@ -125,9 +149,32 @@ Public URL: `https://work-1-cztekbhstulgynne.prod-runtime.all-hands.dev/`
 - **Ads are promo `BANNER`/`ADS` groups in `tab-operating`.** `fetchHome` skips
   groups and slides whose title matches the promo patterns; do not render them
   as browsable titles.
+- **Series and anime play through the UGC collection, not `play-info`.** On the
+  visitor tier `play-info/v2` answers almost every episode with the same 23 s
+  "update your app" trap from `macdn.aoneroom.com` (`signCookie` is empty). The
+  real per-episode files live in the UGC collection behind the title:
+  `/wefeed-mobile-bff/ugc/video/first-by-subject?subjectId=<id>` returns
+  `belongToCollection.{collectionId,videoNum}`, and
+  `/wefeed-mobile-bff/ugc/collection/download-list?collectionId=<c>&page=<p>&perPage=50`
+  lists episodes (`epTitle` like `S1EP7`) each with real `resources[]` on
+  `bcdn.hakunaymatata.com/resource/...`. This is the path AnyFilm uses and it is
+  what `ugcEpisodeStreams` / `ugcEpisodeCounts` in `src/data/api.ts` implement.
+  Without it every series and anime returns zero sources. Some resources carry a
+  `signCookie` whose `urlprefix=<base64>` hides the real `index.m3u8` base URL
+  (AnyFilm's "anti-piracy dummy bypass"); decode it and swap the URL when the
+  returned `url` looks like a trap.
+- **`season-info` is authoritative for episode counts** (`seasons[].maxEp`), but
+  UGC-only series carry none — fall back to the collection labels for the picker.
 - **The visitor backend has no novel service.** `i-api.aoneroom.com` and the
   `/novel/*` paths 404; NovelHub is a signed-in feature of the official client.
   `src/lib/novel.ts` generates deterministic chapters locally so the reader works.
+- **Real data sources**: shorts = `business/shorts` (`media.video[].url`),
+  live TV = `live/tv-channel-list-by-country`, sports = `sport/match-list` +
+  `sport-news/trending`.
+- **Tests**: `npm run test:unit` (live API + UGC series probes), `test:media`,
+  `test:e2e` (movie playback), `test:e2e:series` (series playback through the UI),
+  `test:ui`. The UI suites need a server; run `npm run dev` and
+  `BASE_URL=http://localhost:5173 npm test`, or just `npm test` if port 5173 is up.
 - **`useCachedAsync` is stale-while-revalidate**: a cached screen paints first and
   refreshes in the background. The cache is persisted to `localStorage`
   (`mb-cache-v1`, newest 12 entries, ~1.5 MB cap) so a cold start still paints
