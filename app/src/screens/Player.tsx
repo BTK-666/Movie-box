@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { fetchStreams, type Stream } from '../data/api';
+import { fetchStreams, isAdUrl, type Stream } from '../data/api';
 import { getTitle } from '../data/cache';
 import { useAsync } from '../lib/useAsync';
 import { useStore } from '../lib/store';
@@ -59,11 +59,43 @@ export default function Player() {
   const [failed, setFailed] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
   const triedRef = useRef<Set<string>>(new Set());
+  const [hevcOk, setHevcOk] = useState<boolean | null>(null);
 
-  const sorted = useMemo(() => streams ?? [], [streams]);
+  // MovieBox ships most titles as HEVC (h265), which only decodes where the
+  // device has an HEVC decoder. Probe once so we can prefer a source the device
+  // can actually play instead of letting the first one fail.
+  useEffect(() => {
+    const v = document.createElement('video');
+    const hevc = 'video/mp4; codecs="hvc1.1.6.L93.B0"';
+    const avc = 'video/mp4; codecs="avc1.42E01E"';
+    const canHevc = v.canPlayType(hevc);
+    const canAvc = v.canPlayType(avc);
+    setHevcOk(canHevc !== '' ? true : canAvc !== '' ? false : null);
+  }, []);
+
+  // Belt and braces: fetchStreams already drops promos, but a cached payload
+  // from an older build could still carry one. An ad must never be played.
+  const sorted = useMemo(() => {
+    const list = (streams ?? []).filter((s) => !isAdUrl(s.url));
+    if (hevcOk === false) {
+      // No HEVC decoder: put H.264 first, keeping the resolution order inside
+      // each codec group.
+      const rank = (s: Stream) => (/h264|avc/i.test(s.codec) ? 0 : 1);
+      return [...list].sort((a, b) => rank(a) - rank(b) || b.resolution - a.resolution);
+    }
+    return list;
+  }, [streams, hevcOk]);
   const current: Stream | undefined = sorted[activeIdx] ?? sorted[0];
 
   const streamUrl = current?.url;
+
+  // The source order can change once the HEVC probe finishes; restart from the
+  // new best source instead of keeping a stale index.
+  useEffect(() => {
+    setActiveIdx(0);
+    triedRef.current.clear();
+    setFailed(false);
+  }, [streams, hevcOk]);
 
   // HEVC-only titles can fail on devices without an HEVC decoder; fall through
   // to the next source before giving up.
@@ -177,7 +209,7 @@ export default function Player() {
     : error
       ? error
       : !current
-        ? 'No playable source found for this title'
+        ? 'This title has no playable source on this tier'
         : failed
           ? 'This source failed to load — try another quality'
           : null;

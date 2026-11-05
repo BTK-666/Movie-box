@@ -1,13 +1,16 @@
 import { chromium } from 'playwright';
 
 const B = process.env.BASE_URL ?? 'http://localhost:5173';
-const b = await chromium.launch();
+const b = await chromium.launch(
+  process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {},
+);
 const pg = await b.newPage({ viewport: { width: 390, height: 844 } });
 const errs = [];
 pg.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
 pg.on('console', (m) => { if (m.type() === 'error') errs.push('CONSOLE: ' + m.text()); });
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + m); };
+const adRequests = [];
 
 const ready = async (sel, timeout = 15000) => {
   try { await pg.waitForSelector(sel, { timeout }); return true; } catch { return false; }
@@ -174,7 +177,28 @@ const feedText = await pg.locator('body').innerText();
 ok(!/get free premium/i.test(feedText), 'No "Get Free Premium" ad in the feed');
 ok(!/invite friends/i.test(feedText), 'No invite-friends ad in the feed');
 
+// 13b. The upgrade promo clip must never reach the player. Open several feed
+// titles and assert the <video> src is never the macdn /other/ ad, and that no
+// request to that clip is ever made.
+await pg.route('**/macdn.aoneroom.com/other/**', (r) => {
+  adRequests.push(r.request().url());
+  r.abort();
+});
+for (let i = 0; i < 3; i++) {
+  await pg.goto(B + '/#/', { waitUntil: 'domcontentloaded' });
+  await ready('.rail-scroll .poster-card');
+  await pg.locator('.rail-scroll .poster-card').nth(i).click();
+  await ready('.detail-title');
+  await pg.locator('.detail-actions .btn-primary').click();
+  await pg.waitForTimeout(2500);
+  const psrc = await pg.locator('.video-el').getAttribute('src').catch(() => null);
+  ok(!/macdn\.aoneroom\.com\/other\//.test(psrc ?? ''), `Feed title ${i + 1} player src is not the ad clip`);
+}
+ok(adRequests.length === 0, 'The upgrade promo clip was never requested (' + adRequests.length + ')');
+
 // 14. Thumbnails are requested at a sane size, not full resolution
+await pg.goto(B + '/#/', { waitUntil: 'domcontentloaded' });
+await ready('.rail-scroll .poster-card');
 const railArt = await pg.locator('.rail-scroll .poster-art').first().getAttribute('style');
 ok(/x-oss-process=image\/resize,w_\d+/.test(railArt ?? ''), 'Rail posters use CDN resize');
 const heroStyle = await pg.locator('.hero').first().getAttribute('style');

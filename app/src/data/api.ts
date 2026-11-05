@@ -384,8 +384,29 @@ const sizeLabel = (bytes: number) => {
 
 const qualityOf = (res: number) => (res >= 2160 ? '4K' : res ? `${res}p` : 'Auto');
 
-const isPlaceholder = (url: string) =>
-  url.includes('macdn.aoneroom.com') && url.includes('/other/');
+/**
+ * Promotional clips MovieBox serves instead of the real file.
+ *
+ * When a title is not licensed for the visitor tier the API returns a short
+ * (~23 s) H.264 promo from `macdn.aoneroom.com/other/...` in place of the
+ * movie. The hashes below are the fixed "upgrade" notices the official client
+ * also filters (see `is_deprecation_notice_url` in the Rust TUI). These are
+ * ads, never content, so they must never reach the player.
+ */
+const AD_URL_PATTERNS = [
+  '1c7de0bd3393702d9191801f15f88f8d',
+  '9a0461bc39da389663bf3dbb17091d3f',
+  'b164fbfb4347792950bdfbfb563d39d9',
+  '/notice.mp4',
+];
+
+export const isAdUrl = (url: string) => {
+  const lower = url.toLowerCase();
+  return (
+    AD_URL_PATTERNS.some((p) => lower.includes(p)) ||
+    (lower.includes('macdn.aoneroom.com') && lower.includes('/other/'))
+  );
+};
 
 function toStream(item: any, fallbackRes = 0): Stream | null {
   const url = item?.resourceLink ?? item?.url ?? item?.downloadUrl;
@@ -401,7 +422,7 @@ function toStream(item: any, fallbackRes = 0): Stream | null {
     sizeBytes: size,
     sizeLabel: sizeLabel(size),
     codec: String(item?.codecName ?? ''),
-    direct: !isPlaceholder(url),
+    direct: !isAdUrl(url),
   };
 }
 
@@ -413,17 +434,22 @@ const resolutionFromLink = (link?: string) => {
 /**
  * Resolves playable streams for a title.
  *
- * MovieBox returns real signed MP4s in two places: `resourceDetectors[].downloadUrl`
- * / `resolutionList[]` on the detail payload, and `play-info`. The per-episode
- * `resource` listing usually points at a shared placeholder clip, so real streams
- * are preferred and placeholders are only kept as a last resort.
+ * MovieBox returns real signed MP4s in `resourceDetectors[].downloadUrl` /
+ * `resolutionList[]` and in `play-info`. Two traps:
+ *
+ * 1. `play-info` without `se`/`ep` returns nothing for series, and the
+ *    per-episode `resource` listing is full of promo clips. Both are probed
+ *    here with explicit season/episode so real files are found.
+ * 2. When the title is not licensed for this tier the API hands back a 23 s
+ *    promo instead of the movie. Those URLs are dropped outright — showing an
+ *    ad is worse than showing "no source", so ads are never returned.
  */
 export async function fetchStreams(id: string, season = 0, episode = 0): Promise<Stream[]> {
   const found: Stream[] = [];
   const seen = new Set<string>();
 
   const add = (s: Stream | null) => {
-    if (!s) return;
+    if (!s || !s.direct) return; // ads never enter the list
     const key = s.url.split('?')[0];
     if (seen.has(key)) return;
     seen.add(key);
@@ -434,13 +460,16 @@ export async function fetchStreams(id: string, season = 0, episode = 0): Promise
     .get<any>(`/wefeed-mobile-bff/subject-api/get?subjectId=${id}`)
     .catch(() => null);
 
-  const playInfoPath =
-    season === 0 && episode === 0
-      ? `/wefeed-mobile-bff/subject-api/play-info/v2?subjectId=${id}`
-      : `/wefeed-mobile-bff/subject-api/play-info/v2?subjectId=${id}&se=${season}&ep=${episode}`;
-  const playInfoPromise = client.get<any>(playInfoPath).catch(() => null);
+  const playInfo = (se: number, ep: number) =>
+    client
+      .get<any>(
+        se === 0 && ep === 0
+          ? `/wefeed-mobile-bff/subject-api/play-info/v2?subjectId=${id}`
+          : `/wefeed-mobile-bff/subject-api/play-info/v2?subjectId=${id}&se=${se}&ep=${ep}`,
+      )
+      .catch(() => null);
 
-  const [details, playInfo] = await Promise.all([detailsPromise, playInfoPromise]);
+  const [details, plainPlayInfo] = await Promise.all([detailsPromise, playInfo(0, 0)]);
 
   const subject = details?.subject ?? details;
 
@@ -453,41 +482,56 @@ export async function fetchStreams(id: string, season = 0, episode = 0): Promise
     }
   }
 
-  for (const s of playInfo?.streams ?? []) {
-    add(
-      toStream({
-        resourceLink: s?.url,
-        resolution: Number(String(s?.resolutions ?? '').split(',')[0]) || 0,
-        size: s?.size,
-        codecName: s?.codecName,
-        resourceId: s?.id,
-      }),
-    );
-  }
-
-  // Per-episode resource listing. Mostly placeholders, but occasionally a real mirror.
-  if (season > 0 && episode > 0) {
-    try {
-      const res = await client.get<any>(
-        `/wefeed-mobile-bff/subject-api/resource/v2?subjectId=${id}&page=1&perPage=20&all=0&startPosition=1&endPosition=1&pagerMode=2&resolution=0&se=${season}&epFrom=${episode}&epTo=${episode}&isVip=true`,
+  const addPlayInfo = (payload: any) => {
+    for (const s of payload?.streams ?? []) {
+      add(
+        toStream({
+          resourceLink: s?.url,
+          resolution: Number(String(s?.resolutions ?? '').split(',')[0]) || 0,
+          size: s?.size,
+          codecName: s?.codecName,
+          resourceId: s?.id,
+        }),
       );
-      for (const item of res?.list ?? []) {
-        if (Number(item?.se) !== season || Number(item?.ep) !== episode) continue;
-        add(toStream(item));
-      }
-    } catch {
-      /* keep whatever we already have */
+    }
+  };
+
+  addPlayInfo(plainPlayInfo);
+
+  // Series return nothing without se/ep. Probe the requested episode, and fall
+  // back to the first couple of episodes so a movie-style call still resolves.
+  if (!found.length) {
+    const probes: Array<[number, number]> =
+      season > 0 && episode > 0
+        ? [[season, episode], [1, 1], [1, 2]]
+        : [[1, 1], [1, 2]];
+    for (const [se, ep] of probes) {
+      addPlayInfo(await playInfo(se, ep));
+      if (found.length) break;
     }
   }
 
-  const real = found.filter((s) => s.direct);
-  const usable = real.length ? real : found;
+  // Per-episode resource listing. The listing itself is mostly promo clips, but
+  // the direct file is occasionally recoverable here.
+  const listPath =
+    season > 0 && episode > 0
+      ? `/wefeed-mobile-bff/subject-api/resource/v2?subjectId=${id}&page=1&perPage=20&all=0&startPosition=1&endPosition=1&pagerMode=2&resolution=0&se=${season}&epFrom=${episode}&epTo=${episode}&isVip=true`
+      : `/wefeed-mobile-bff/subject-api/resource?subjectId=${id}&page=1&perPage=20`;
+  try {
+    const res = await client.get<any>(listPath);
+    for (const item of res?.list ?? []) {
+      if (season > 0 && episode > 0 && (Number(item?.se) !== season || Number(item?.ep) !== episode)) continue;
+      add(toStream(item));
+    }
+  } catch {
+    /* keep whatever we already have */
+  }
 
   // MovieBox mostly ships HEVC, which only decodes on devices with an HEVC
   // decoder. H.264 plays everywhere, so when both exist for the same resolution
   // the H.264 variant is offered first.
   const compat = (s: Stream) => (/h264|avc/i.test(s.codec) ? 0 : 1);
-  return usable.sort(
+  return found.sort(
     (a, b) =>
       b.resolution - a.resolution ||
       compat(a) - compat(b) ||

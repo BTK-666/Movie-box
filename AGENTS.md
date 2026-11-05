@@ -36,8 +36,8 @@ export PATH=$JAVA_HOME/bin:$PATH
 Tests:
 
 ```bash
-npm run test:unit             # 111 tests: crypto vectors, adapters, live API (Node)
-npm run test:ui               # 58 interaction tests (Playwright, 390x844)
+npm run test:unit             # 118 tests: crypto vectors, adapters, live API, ad filtering (Node)
+npm run test:ui               # 62 interaction tests (Playwright, 390x844)
 npm test                      # both
 ```
 
@@ -76,10 +76,19 @@ Public URL: `https://work-1-cztekbhstulgynne.prod-runtime.all-hands.dev/`
   screen — go through `src/data/api.ts`.
 - **Movie streams are mostly HEVC.** `fetchStreams` sorts H.264 first for the same
   resolution because HEVC only decodes where the device has a decoder. The player
-  also falls back to the next source when one fails.
-- **Series episode URLs are placeholders.** Movies have real `downloadUrl`s;
-  series `resolutionList` comes back empty and the episode links point at a
-  deprecation clip. Series detail/episodes still render, playback does not.
+  probes `canPlayType('hvc1…')` once and, on devices without an HEVC decoder,
+  re-ranks H.264 first; it also falls back to the next source when one fails.
+- **Promo clips are ads and are never played.** When a title is not licensed for
+  the visitor tier, MovieBox substitutes a ~23 s H.264 clip from
+  `macdn.aoneroom.com/other/...`. `isAdUrl()` in `src/data/api.ts` recognises it
+  (plus the fixed notice hashes and `/notice.mp4`) and `fetchStreams` drops it
+  outright — the app then honestly reports "no playable source" instead of
+  looping an ad. `Player.tsx` filters again as a guard against cached payloads.
+  Series episodes and VIP titles (`vipInfo.requireMemberType`) are all gated this
+  way, so most series have no source on the visitor tier.
+- **`play-info` needs `se`/`ep`.** Without them the endpoint returns no streams
+  for series; `fetchStreams` probes `se=1&ep=1` (then `ep=2`) and the legacy
+  `resource` listing as fallbacks.
 - **Artwork must be base64 SVG data URIs.** Percent-encoded SVG that contains
   `<defs>` gradients is silently rejected by Chromium's CSS parser, so
   `background-image` ends up empty and the UI looks blank. See `src/data/catalog.ts`.

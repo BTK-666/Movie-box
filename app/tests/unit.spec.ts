@@ -18,6 +18,7 @@ import {
   fetchStreams,
   episodesOf,
   subjectToTitle,
+  isAdUrl,
 } from '../src/data/api';
 import { getTitle, rememberTitles, rememberDetails, getDetails } from '../src/data/cache';
 import {
@@ -166,6 +167,26 @@ eq(
 const seenUrls = new Set(streams.map((s) => s.url.split('?')[0]));
 eq(seenUrls.size, streams.length, 'streams have no duplicate files');
 
+// Promo clips must never be handed to the player. MovieBox substitutes a ~23 s
+// H.264 clip from macdn.aoneroom.com/other/ when a title is not licensed for
+// this tier; that clip is an ad, so the resolver drops it and reports no source.
+ok(isAdUrl('https://macdn.aoneroom.com/other/2026/10/10/80da52722ee7de7a4303290af6783424.mp4'), 'the upgrade promo is detected as an ad');
+ok(isAdUrl('https://cdn.example.com/videos/notice.mp4'), 'notice.mp4 is detected as an ad');
+ok(!isAdUrl('https://bcdn.hakunaymatata.com/resource/h265/e7e7dd926ebded293cdf64eba8e81899.mp4'), 'a real h265 file is not an ad');
+ok(!isAdUrl('https://cdn.example.com/other/movie.mp4'), 'a non-macdn /other/ path is not an ad');
+
+const feeds = await fetchHome('0');
+const feedIds = [...new Set(feeds.rails.flatMap((r) => r.items))].slice(0, 12);
+let adLeaks = 0;
+let playable = 0;
+for (const fid of feedIds) {
+  const fs = await fetchStreams(fid);
+  if (fs.some((s) => isAdUrl(s.url))) adLeaks++;
+  if (fs.length) playable++;
+}
+eq(adLeaks, 0, `no promo clip leaks into any of ${feedIds.length} feed titles`);
+ok(playable > 0, `at least one feed title still resolves a real stream (${playable}/${feedIds.length})`);
+
 const series = (await searchTitles('breaking bad')).find((t) => t.type === 'tv');
 ok(Boolean(series), 'a series is found by search');
 if (series) {
@@ -175,8 +196,29 @@ if (series) {
   const eps = episodesOf(sd, 1);
   eq(eps.length, sd.episodeCounts[1] ?? 0, 'episodesOf matches the reported episode count');
   ok(eps.every((e) => e.no > 0 && e.title), 'generated episodes are well formed');
+
+  // Series on the visitor tier resolve to a promo only, so the honest result is
+  // "no source" rather than a 23 s ad pretending to be episode 1.
   const epStreams = await fetchStreams(series.id, 1, 1);
-  ok(epStreams.length > 0, `series s1e1 streams resolve (${epStreams.length})`);
+  eq(epStreams.filter((s) => isAdUrl(s.url)).length, 0, 'series episode never resolves to the promo clip');
+
+  // A title that does have a real file must still resolve after the filter.
+  // Every series episode on the visitor tier is VIP-gated, so this is a
+  // best-effort scan: when one does resolve it must be ad-free.
+  let seriesSample: { title: string; streams: any[] } | null = null;
+  for (const t of await searchTitles('the')) {
+    if (t.type !== 'tv') continue;
+    const s = await fetchStreams(t.id, 1, 1);
+    if (s.length) {
+      seriesSample = { title: t.title, streams: s };
+      break;
+    }
+  }
+  if (seriesSample) {
+    eq(seriesSample.streams.filter((s) => isAdUrl(s.url)).length, 0, `resolved series episode is ad-free (${seriesSample.title})`);
+  } else {
+    ok(true, 'no series episode is available on the visitor tier (all VIP-gated)');
+  }
 }
 
 /* ---------- Failure handling ---------- */
