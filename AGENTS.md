@@ -52,6 +52,19 @@ BASE_URL=http://127.0.0.1:4173 npm run test:ui  # after `vite preview`
 `tests/apkpayload.mjs` runs against the production bundle, which is the same
 payload that ships inside the APK. Prefer it when the emulator is unavailable.
 
+## Serving the APK
+
+The download page is served from `/workspace/mbdl` (not `/tmp`, which gets
+wiped). Restart it after a rebuild:
+
+```bash
+cp moviebox-plus-debug.apk /workspace/mbdl/MovieBoxPlus.apk
+nohup python3 -m http.server 12000 --bind 0.0.0.0 \
+  --directory /workspace/mbdl > /workspace/mbdl/server.log 2>&1 &
+```
+
+Public URL: `https://work-1-cztekbhstulgynne.prod-runtime.all-hands.dev/`
+
 ## Things that bite
 
 - **The app streams from the live MovieBox API**, so screens need network. Each
