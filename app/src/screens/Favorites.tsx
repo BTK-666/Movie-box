@@ -1,14 +1,16 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../lib/store';
-import { TITLE_BY_ID } from '../data/catalog';
+import { getTitle } from '../data/cache';
 import { PosterCard, EmptyState } from '../components/ui';
 import { IconBack, IconHeart } from '../components/Icons';
 
 export default function Favorites() {
   const nav = useNavigate();
   const { state } = useStore();
-  const items = state.favorites.map((id) => TITLE_BY_ID[id]).filter(Boolean);
+  const items = state.favorites
+    .map((id) => getTitle(id))
+    .filter((t): t is NonNullable<typeof t> => Boolean(t));
 
   return (
     <>

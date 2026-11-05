@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore, DownloadItem } from '../lib/store';
-import { TITLE_BY_ID } from '../data/catalog';
+import { getTitle } from '../data/cache';
 import {
   IconBack,
   IconPlay,
@@ -61,7 +61,7 @@ export default function Downloads() {
           history.length ? (
             <div style={{ paddingTop: 10 }}>
               {history.map((h) => {
-                const t = TITLE_BY_ID[h.titleId];
+                const t = getTitle(h.titleId);
                 if (!t) return null;
                 return (
                   <button
@@ -141,7 +141,7 @@ export default function Downloads() {
 function DownloadCard({ d }: { d: DownloadItem }) {
   const nav = useNavigate();
   const { dispatch, toast } = useStore();
-  const t = TITLE_BY_ID[d.titleId];
+  const t = getTitle(d.titleId);
   const pct = Math.round(d.progress * 100);
 
   return (

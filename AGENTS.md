@@ -4,6 +4,14 @@
 
 - `MovieBox-Tui-main/` — original Rust terminal (TUI) app. Untouched.
 - `app/` — the React + Vite web UI, packaged for Android via Capacitor.
+  - `src/lib/moviebox.ts` — signed HTTP client for the MovieBox API.
+  - `src/lib/md5.ts` — MD5/HMAC-MD5/base64 implemented in-repo (no deps).
+  - `src/data/api.ts` — adapter: API JSON -> app models (`Title`, `MediaDetails`, `Stream`, `ShortItem`, `LiveChannel`, `SportMatch`).
+  - `src/data/cache.ts` — in-memory title/details cache shared across screens.
+  - `src/data/catalog.ts` — bundled fallback catalog and artwork helper.
+  - `src/lib/img.ts` — CDN image resizing (`optimizeImage`, `posterImage`).
+  - `src/lib/useAsync.ts` — `useAsync` and the persisted stale-while-revalidate cache.
+  - `src/lib/novel.ts` — deterministic novel chapters + reading progress.
 - `moviebox-plus-debug.apk` — latest debug APK at repo root (ignored by git).
 
 ## Build and test
@@ -25,11 +33,20 @@ export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 export PATH=$JAVA_HOME/bin:$PATH
 ```
 
-Tests (Playwright, viewport 390x844):
+Tests:
 
 ```bash
-node tests/ui.spec.mjs        # 25 interaction tests, needs dev server on :5173
-node tests/apkpayload.mjs     # 18 route/render checks, needs `vite preview` on :4173
+npm run test:unit             # 111 tests: crypto vectors, adapters, live API (Node)
+npm run test:ui               # 58 interaction tests (Playwright, 390x844)
+npm test                      # both
+```
+
+`npm run test:unit` needs no server. `npm run test:ui` needs a server; point it
+at either one:
+
+```bash
+npm run dev &                                   # :5173 (default)
+BASE_URL=http://127.0.0.1:4173 npm run test:ui  # after `vite preview`
 ```
 
 `tests/apkpayload.mjs` runs against the production bundle, which is the same
@@ -37,17 +54,48 @@ payload that ships inside the APK. Prefer it when the emulator is unavailable.
 
 ## Things that bite
 
+- **The app streams from the live MovieBox API**, so screens need network. Each
+  request is signed (`x-client-token`, `x-tr-signature`) with the shared secret in
+  `src/lib/moviebox.ts`. The API's CORS policy allows the Capacitor origin
+  (`https://localhost`), so plain `fetch` works from the WebView.
+- **Signed requests are cached and de-duplicated** by `MovieBoxClient`; the
+  visitor token is refreshed on a 401. Never call the endpoints directly from a
+  screen — go through `src/data/api.ts`.
+- **Movie streams are mostly HEVC.** `fetchStreams` sorts H.264 first for the same
+  resolution because HEVC only decodes where the device has a decoder. The player
+  also falls back to the next source when one fails.
+- **Series episode URLs are placeholders.** Movies have real `downloadUrl`s;
+  series `resolutionList` comes back empty and the episode links point at a
+  deprecation clip. Series detail/episodes still render, playback does not.
 - **Artwork must be base64 SVG data URIs.** Percent-encoded SVG that contains
   `<defs>` gradients is silently rejected by Chromium's CSS parser, so
   `background-image` ends up empty and the UI looks blank. See `src/data/catalog.ts`.
-  `artwork(seed, w, h)` is the public helper for one-off images.
-- **Keep the app offline-safe.** Do not reintroduce remote image URLs; the APK
-  has to render with no network. `tests/apkpayload.mjs` asserts zero external
-  requests.
+  `artwork(seed, w, h)` is the public helper for one-off images. It is now only a
+  fallback for titles the API returns without a cover.
 - **The emulator has no KVM here**, so it is extremely slow and the WebView
-  renderer can crash (SIGTRAP) under software rendering. A white/black
-  `screencap` is usually the emulator, not the app. Verify via
-  `node tests/apkpayload.mjs`, or connect to the WebView with
-  `adb forward tcp:9223 localabstract:webview_devtools_remote_<pid>`.
+  renderer can crash (SIGTRAP) under software rendering. A white `screencap` is
+  usually the emulator, not the app — a JS-free static page crashes the same way.
+  Verify behaviour in Chromium instead (`npm run test:ui`), or connect to the
+  WebView with `adb forward tcp:9222 localabstract:webview_devtools_remote`.
 - Capacitor logs `Unable to read file at path public/plugins` at startup; that
   is benign.
+- **State persists in `localStorage`** under `mb-store-v1`. A fresh install starts
+  empty: My List, Downloads and History fill up as the user browses.
+- **Images must go through `optimizeImage`.** The CDN is Alibaba OSS, so
+  `?x-oss-process=image/resize,w_<n>` resizes server-side (a 2.35 MB banner
+  becomes ~600 KB). Full-size posters made the feed look like it was hanging.
+- **Ads are promo `BANNER`/`ADS` groups in `tab-operating`.** `fetchHome` skips
+  groups and slides whose title matches the promo patterns; do not render them
+  as browsable titles.
+- **The visitor backend has no novel service.** `i-api.aoneroom.com` and the
+  `/novel/*` paths 404; NovelHub is a signed-in feature of the official client.
+  `src/lib/novel.ts` generates deterministic chapters locally so the reader works.
+- **`useCachedAsync` is stale-while-revalidate**: a cached screen paints first and
+  refreshes in the background. The cache is persisted to `localStorage`
+  (`mb-cache-v1`, newest 12 entries, ~1.5 MB cap) so a cold start still paints
+  instantly. Tests assert paint time, not request count.
+- **The JDK is not preinstalled.** `sudo apt-get install -y openjdk-21-jdk-headless`
+  before `./gradlew assembleDebug`; set `JAVA_HOME` as shown above.
+- **Real data sources**: shorts = `business/shorts` (`media.video[].url`),
+  live TV = `live/tv-channel-list-by-country`, sports = `sport/match-list` +
+  `sport-news/trending`.

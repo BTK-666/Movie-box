@@ -1,6 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { TITLE_BY_ID } from '../data/catalog';
+import { fetchStreams, type Stream } from '../data/api';
+import { getTitle } from '../data/cache';
+import { useAsync } from '../lib/useAsync';
 import { useStore } from '../lib/store';
 import {
   IconBack,
@@ -15,12 +17,16 @@ import {
   IconSettings,
   IconCast,
 } from '../components/Icons';
-import { Sheet, SheetOption } from '../components/ui';
+import { Sheet, SheetOption, Loading, ErrorState } from '../components/ui';
 
 function fmt(sec: number) {
-  const m = Math.floor(sec / 60);
+  if (!Number.isFinite(sec) || sec < 0) return '0:00';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
   const s = Math.floor(sec % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
+  return h > 0
+    ? `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+    : `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 export default function Player() {
@@ -28,62 +34,153 @@ export default function Player() {
   const [sp] = useSearchParams();
   const nav = useNavigate();
   const { dispatch, toast } = useStore();
-  const t = TITLE_BY_ID[id];
+
+  const season = Number(sp.get('se')) || 0;
+  const episode = Number(sp.get('ep')) || 0;
+  const title = getTitle(id);
+
+  const { data: streams, loading, error, reload } = useAsync(
+    () => fetchStreams(id, season, episode),
+    [id, season, episode],
+  );
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hideTimer = useRef<number | null>(null);
 
   const [playing, setPlaying] = useState(true);
-  const [pos, setPos] = useState(12);
+  const [pos, setPos] = useState(0);
+  const [total, setTotal] = useState(0);
   const [muted, setMuted] = useState(false);
   const [controls, setControls] = useState(true);
   const [locked, setLocked] = useState(false);
   const [sheet, setSheet] = useState<null | 'quality' | 'speed' | 'subtitle'>(null);
-  const [quality, setQuality] = useState('1080p');
   const [speed, setSpeed] = useState('1x');
-  const [subLang, setSubLang] = useState('English');
-  const hideTimer = useRef<number | null>(null);
+  const [subLang, setSubLang] = useState('Off');
+  const [failed, setFailed] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const triedRef = useRef<Set<string>>(new Set());
 
-  const total = t ? (t.type === 'movie' ? 7200 : 2700) : 3600;
-  const ep = sp.get('ep');
+  const sorted = useMemo(() => streams ?? [], [streams]);
+  const current: Stream | undefined = sorted[activeIdx] ?? sorted[0];
 
+  const streamUrl = current?.url;
+
+  // HEVC-only titles can fail on devices without an HEVC decoder; fall through
+  // to the next source before giving up.
+  const onSourceError = useCallback(() => {
+    const s = sorted[activeIdx];
+    if (s) triedRef.current.add(s.id);
+    const next = sorted.findIndex((x, i) => i !== activeIdx && !triedRef.current.has(x.id));
+    if (next >= 0) {
+      toast(`Switching source…`);
+      setActiveIdx(next);
+    } else {
+      setFailed(true);
+    }
+  }, [sorted, activeIdx, toast]);
+
+  // History is written once per title/episode, not on every position tick.
+  const historyRef = useRef({ id: '', progress: 0 });
   useEffect(() => {
-    if (!playing) return;
-    const iv = window.setInterval(() => setPos((p) => Math.min(total, p + 1)), 1000);
-    return () => window.clearInterval(iv);
-  }, [playing, total]);
-
-  useEffect(() => {
-    if (!t) return;
-    const item = {
-      id: `${t.id}-${ep ?? 'main'}`,
-      titleId: t.id,
-      episode: ep ? Number(ep) : undefined,
-      progress: 0,
-      watchedAt: Date.now(),
-    };
-    dispatch({ type: 'pushHistory', item });
+    if (!title) return;
+    historyRef.current = { id: title.id, progress: 0 };
+    dispatch({
+      type: 'pushHistory',
+      item: {
+        id: `${title.id}-${season}-${episode}`,
+        titleId: title.id,
+        episode: episode || undefined,
+        progress: 0,
+        watchedAt: Date.now(),
+      },
+    });
     return () => {
       dispatch({
         type: 'pushHistory',
-        item: { ...item, progress: pos / total, watchedAt: Date.now() },
+        item: {
+          id: `${title.id}-${season}-${episode}`,
+          titleId: title.id,
+          episode: episode || undefined,
+          progress: historyRef.current.progress,
+          watchedAt: Date.now(),
+        },
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [title?.id, season, episode]);
 
   useEffect(() => {
-    if (controls && playing) {
+    if (!streamUrl) return;
+    setFailed(false);
+    const v = videoRef.current;
+    if (!v) return;
+    v.load();
+    const p = v.play();
+    if (p && typeof p.catch === 'function') {
+      p.then(() => setPlaying(true)).catch(() => setPlaying(false));
+    }
+  }, [streamUrl]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const rate = Number.parseFloat(speed);
+    v.playbackRate = Number.isFinite(rate) ? rate : 1;
+  }, [speed, streamUrl]);
+
+  useEffect(() => {
+    if (controls && playing && !locked) {
       if (hideTimer.current) window.clearTimeout(hideTimer.current);
       hideTimer.current = window.setTimeout(() => setControls(false), 3500);
-    } else if (!playing) {
-      if (hideTimer.current) window.clearTimeout(hideTimer.current);
     }
     return () => {
       if (hideTimer.current) window.clearTimeout(hideTimer.current);
     };
-  }, [controls, playing]);
+  }, [controls, playing, locked]);
 
-  if (!t) return <div className="player center">Not found</div>;
+  const togglePlay = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) {
+      const p = v.play();
+      if (p && typeof p.catch === 'function') p.catch(() => toast('Playback blocked'));
+      setPlaying(true);
+    } else {
+      v.pause();
+      setPlaying(false);
+    }
+  }, [toast]);
 
-  const pct = (pos / total) * 100;
+  const seekBy = (delta: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = Math.max(0, Math.min(v.duration || total, v.currentTime + delta));
+  };
+
+  const seekToFraction = (f: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const d = v.duration || total;
+    if (d > 0) v.currentTime = Math.max(0, Math.min(1, f)) * d;
+  };
+
+  if (!title) return <div className="player center">Not found</div>;
+
+  const pct = total > 0 ? (pos / total) * 100 : 0;
+  const label = episode ? `${title.title} · S${season} E${episode}` : title.title;
+
+  // Only cover the video while loading or when there is nothing to play; a
+  // transient decode hiccup should not hide a working stream behind an overlay.
+  const blocking = loading || error || !current;
+  const notice = loading
+    ? 'Loading stream…'
+    : error
+      ? error
+      : !current
+        ? 'No playable source found for this title'
+        : failed
+          ? 'This source failed to load — try another quality'
+          : null;
 
   return (
     <div className="player">
@@ -94,7 +191,45 @@ export default function Player() {
           setControls((c) => !c);
         }}
       >
-        <div className="video" style={{ backgroundImage: `url(${t.backdrop})` }} />
+        <video
+          ref={videoRef}
+          className="video-el"
+          src={streamUrl}
+          poster={title.backdrop}
+          playsInline
+          muted={muted}
+          preload="metadata"
+          onLoadedMetadata={(e) => setTotal(e.currentTarget.duration || 0)}
+          onTimeUpdate={(e) => {
+            const t = e.currentTarget.currentTime;
+            setPos(t);
+            if (historyRef.current.id === title.id) {
+              const d = e.currentTarget.duration || 0;
+              historyRef.current.progress = d > 0 ? t / d : 0;
+            }
+          }}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onError={onSourceError}
+        />
+
+        {notice && (blocking || failed) && (
+          <div className={`player-overlay${blocking ? '' : ' soft'}`}>
+            {error ? (
+              <ErrorState message={error} onRetry={reload} />
+            ) : (
+              <>
+                {loading && <span className="spinner" />}
+                <span>{notice}</span>
+                {!loading && !error && !current && (
+                  <button className="btn btn-ghost" onClick={() => nav(-1)}>
+                    Go back
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         <div
           className={`player-controls ${controls && !locked ? '' : 'hidden'}`}
@@ -105,11 +240,10 @@ export default function Player() {
               <IconBack />
             </button>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="player-title ellipsis">
-                {t.title} {ep ? `· E${ep}` : ''}
-              </div>
+              <div className="player-title ellipsis">{label}</div>
               <div className="player-sub ellipsis">
-                {quality} · {speed} · {subLang !== 'Off' ? subLang : 'No subtitles'}
+                {current ? `${current.quality}${current.sizeLabel ? ` · ${current.sizeLabel}` : ''} · ${speed}` : '—'}
+                {subLang !== 'Off' ? ` · ${subLang}` : ' · No subtitles'}
               </div>
             </div>
             <button className="icon-btn" style={{ color: '#fff' }} onClick={() => setSheet('subtitle')} aria-label="Subtitles">
@@ -118,13 +252,13 @@ export default function Player() {
           </div>
 
           <div className="player-center">
-            <button className="pc" onClick={() => setPos((p) => Math.max(0, p - 10))} aria-label="Back 10s">
+            <button className="pc" onClick={() => seekBy(-10)} aria-label="Back 10s">
               <IconSkipBack size={24} />
             </button>
-            <button className="pc main" onClick={() => setPlaying((p) => !p)} aria-label="Play/pause">
+            <button className="pc main" onClick={togglePlay} aria-label="Play/pause">
               {playing ? <IconPause size={28} /> : <IconPlay size={28} />}
             </button>
-            <button className="pc" onClick={() => setPos((p) => Math.min(total, p + 10))} aria-label="Forward 10s">
+            <button className="pc" onClick={() => seekBy(10)} aria-label="Forward 10s">
               <IconSkip size={24} />
             </button>
           </div>
@@ -136,22 +270,31 @@ export default function Player() {
                 className="track"
                 onClick={(e) => {
                   const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  setPos(((e.clientX - r.left) / r.width) * total);
+                  seekToFraction((e.clientX - r.left) / r.width);
                 }}
               >
                 <i style={{ width: `${pct}%` }} />
                 <b style={{ left: `${pct}%` }} />
               </div>
-              <span>-{fmt(total - pos)}</span>
+              <span>-{fmt(Math.max(0, total - pos))}</span>
             </div>
             <div className="player-tools">
               <button className="pt" onClick={() => setSheet('quality')}>
-                {quality}
+                {current?.quality ?? 'Auto'}
               </button>
               <button className="pt" onClick={() => setSheet('speed')}>
                 {speed}
               </button>
-              <button className="pt" onClick={() => setMuted((m) => !m)} aria-label="Mute">
+              <button
+                className="pt"
+                onClick={() => {
+                  const v = videoRef.current;
+                  const next = !muted;
+                  setMuted(next);
+                  if (v) v.muted = next;
+                }}
+                aria-label="Mute"
+              >
                 {muted ? <IconMute size={17} /> : <IconVolume size={17} />}
               </button>
               <span className="spacer" />
@@ -161,7 +304,16 @@ export default function Player() {
               <button className="pt" onClick={() => setSheet('quality')} aria-label="Settings">
                 <IconSettings size={17} />
               </button>
-              <button className="pt" onClick={() => toast('Fullscreen')} aria-label="Fullscreen">
+              <button
+                className="pt"
+                onClick={() => {
+                  const v = videoRef.current;
+                  if (!v) return;
+                  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+                  else v.requestFullscreen?.().catch(() => toast('Fullscreen unavailable'));
+                }}
+                aria-label="Fullscreen"
+              >
                 <IconFullscreen size={17} />
               </button>
             </div>
@@ -179,9 +331,21 @@ export default function Player() {
 
       {sheet === 'quality' && (
         <Sheet title="Quality" onClose={() => setSheet(null)}>
-          {['4K', '1080p', '720p', '480p', 'Auto'].map((q) => (
-            <SheetOption key={q} active={quality === q} onClick={() => { setQuality(q); setSheet(null); toast(`Quality: ${q}`); }}>
-              {q}
+          {sorted.length === 0 && <div className="sheet-empty">No sources available</div>}
+          {sorted.map((s) => (
+            <SheetOption
+              key={s.id}
+              active={current?.id === s.id}
+              onClick={() => {
+                setActiveIdx(sorted.indexOf(s));
+                setFailed(false);
+                setSheet(null);
+                toast(`Quality: ${s.quality}`);
+              }}
+            >
+              {s.quality}
+              {s.sizeLabel ? ` · ${s.sizeLabel}` : ''}
+              {s.codec ? ` · ${s.codec}` : ''}
             </SheetOption>
           ))}
         </Sheet>

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Title } from '../data/catalog';
-import { IconStar, IconPlay, IconChevronRight, IconClose } from './Icons';
+import { posterImage, backdropImage } from '../lib/img';
+import { IconStar, IconPlay, IconChevronRight, IconClose, IconWifiOff } from './Icons';
 
 /* ---------- Poster card ---------- */
 export function PosterCard({
@@ -22,14 +23,18 @@ export function PosterCard({
   sub?: string;
 }) {
   const nav = useNavigate();
+  // `width={0}` is the grid variant: cards fill their column, so the rendered
+  // pixel width is roughly half the viewport.
+  const cssWidth = width > 0 ? width : Math.round((window.innerWidth - 44) / 2);
+  const poster = posterImage(t.poster, cssWidth);
   return (
     <button
       className="poster-card"
-      style={{ width }}
+      style={{ width: width > 0 ? width : undefined }}
       onClick={() => nav(`/detail/${t.id}`)}
       aria-label={t.title}
     >
-      <div className="poster-art" style={{ backgroundImage: `url(${t.poster})` }}>
+      <div className="poster-art" style={{ backgroundImage: `url(${poster})` }}>
         {t.quality && <span className="poster-badge">{t.quality}</span>}
         {t.newRelease && !showRank && <span className="poster-new">NEW</span>}
         {showRank && (
@@ -178,6 +183,33 @@ export function EmptyState({
       <div className="empty-title">{title}</div>
       {subtitle && <div className="empty-sub">{subtitle}</div>}
       {action}
+    </div>
+  );
+}
+
+/* ---------- Async states ---------- */
+export function Loading({ label = 'Loading…' }: { label?: string }) {
+  return (
+    <div className="loading">
+      <span className="spinner" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="empty">
+      <div className="empty-icon">
+        <IconWifiOff />
+      </div>
+      <div className="empty-title">Couldn&apos;t load</div>
+      <div className="empty-sub">{message}</div>
+      {onRetry && (
+        <button className="btn btn-primary" style={{ marginTop: 14 }} onClick={onRetry}>
+          Try again
+        </button>
+      )}
     </div>
   );
 }

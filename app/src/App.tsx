@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { HashRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { StoreProvider, useStore } from './lib/store';
 import BottomNav from './components/BottomNav';
 import Splash from './screens/Splash';
@@ -11,6 +11,7 @@ import Downloads from './screens/Downloads';
 import Me from './screens/Me';
 import NovelHub from './screens/NovelHub';
 import NovelDetail from './screens/NovelDetail';
+import NovelReader from './screens/NovelReader';
 import FightZone from './screens/FightZone';
 import ShortTV from './screens/ShortTV';
 import LiveTV from './screens/LiveTV';
@@ -42,6 +43,51 @@ function ScrollReset() {
   return null;
 }
 
+/**
+ * Hardware back button.
+ *
+ * Without this Capacitor's default applies: the WebView has no history entry to
+ * pop, so the activity finishes and the whole app closes. Screens are pushed
+ * with react-router, so walking the router history is the right behaviour;
+ * only the root route is allowed to exit.
+ */
+function BackButton() {
+  const nav = useNavigate();
+  const loc = useLocation();
+
+  useEffect(() => {
+    let remove: (() => void) | undefined;
+    let cancelled = false;
+
+    import('@capacitor/app')
+      .then(async ({ App: CapApp }) => {
+        if (cancelled) return;
+        const handle = await CapApp.addListener('backButton', ({ canGoBack }) => {
+          const atRoot = loc.pathname === '/';
+          if (!atRoot || canGoBack) {
+            nav(-1);
+          } else {
+            CapApp.exitApp();
+          }
+        });
+        remove = () => handle.remove();
+      })
+      .catch(() => {
+        /* not running inside Capacitor (web build) */
+      });
+
+    return () => {
+      cancelled = true;
+      remove?.();
+    };
+    // `loc.pathname` is read through a ref-like closure below; re-registering on
+    // every navigation keeps the root check accurate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav, loc.pathname]);
+
+  return null;
+}
+
 function Shell() {
   const loc = useLocation();
   const hideNav =
@@ -60,10 +106,12 @@ function Shell() {
   return (
     <>
       <ScrollReset />
+      <BackButton />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/novels" element={<NovelHub />} />
         <Route path="/novels/:id" element={<NovelDetail />} />
+        <Route path="/novels/:id/read" element={<NovelReader />} />
         <Route path="/fight" element={<FightZone />} />
         <Route path="/downloads" element={<Downloads />} />
         <Route path="/me" element={<Me />} />

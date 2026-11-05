@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../lib/store';
-import { TITLE_BY_ID } from '../data/catalog';
+import { getTitle } from '../data/cache';
 import { IconBack, IconPlay, IconHistory, IconTrash } from '../components/Icons';
 import { EmptyState, Confirm } from '../components/ui';
 
@@ -28,7 +28,7 @@ export default function HistoryScreen() {
         {state.history.length ? (
           <div style={{ paddingTop: 10 }}>
             {state.history.map((h) => {
-              const t = TITLE_BY_ID[h.titleId];
+              const t = getTitle(h.titleId);
               if (!t) return null;
               return (
                 <button

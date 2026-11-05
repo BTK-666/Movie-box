@@ -9,6 +9,7 @@ import React, {
   useState,
 } from 'react';
 import { TITLE_BY_ID, artwork } from '../data/catalog';
+import { getTitle } from '../data/cache';
 
 export type Theme = 'dark' | 'light';
 
@@ -101,21 +102,11 @@ const DEFAULT_ADDONS: Addon[] = [
 ];
 
 const initialState: State = {
-  favorites: ['t01', 'tv01', 'an01'],
-  downloads: [
-    { id: 'd1', titleId: 'tv01', episode: 4, label: 'Broken Empire — E4', quality: '1080p', size: '612 MB', progress: 0.47, status: 'downloading', speed: '4.2 MB/s', eta: '1m 40s' },
-    { id: 'd2', titleId: 't06', label: 'Kingdom of Ash', quality: '4K', size: '3.1 GB', progress: 0.12, status: 'downloading', speed: '6.8 MB/s', eta: '6m 12s' },
-    { id: 'd3', titleId: 'an01', episode: 1, label: 'Blade of the Crimson Moon — E1', quality: '1080p', size: '540 MB', progress: 1, status: 'done' },
-    { id: 'd4', titleId: 't02', label: 'Neon Horizon', quality: '1080p', size: '1.4 GB', progress: 1, status: 'done' },
-    { id: 'd5', titleId: 'tv04', episode: 1, label: 'Seoul Nights — E1', quality: '720p', size: '388 MB', progress: 0.63, status: 'paused' },
-  ],
-  history: [
-    { id: 'h1', titleId: 't01', progress: 0.35, watchedAt: Date.now() - 3600_000 },
-    { id: 'h2', titleId: 'tv01', episode: 3, progress: 0.62, watchedAt: Date.now() - 7200_000 },
-    { id: 'h3', titleId: 'an01', episode: 2, progress: 0.18, watchedAt: Date.now() - 86_400_000 },
-    { id: 'h4', titleId: 't06', progress: 0.81, watchedAt: Date.now() - 172_800_000 },
-    { id: 'h5', titleId: 'tv04', episode: 1, progress: 0.44, watchedAt: Date.now() - 259_200_000 },
-  ],
+  // A fresh install starts empty; My List, Downloads and History fill up as the
+  // user browses the live catalog.
+  favorites: [],
+  downloads: [],
+  history: [],
   addons: DEFAULT_ADDONS,
   settings: DEFAULT_SETTINGS,
   profile: {
@@ -181,10 +172,31 @@ interface StoreCtx {
   fmt: (n: number) => string;
 }
 
+const PERSIST_KEY = 'mb-store-v1';
+
+type Persisted = Pick<State, 'favorites' | 'downloads' | 'history' | 'addons' | 'settings' | 'profile'>;
+
+function loadPersisted(): State {
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY);
+    if (!raw) return initialState;
+    const saved = JSON.parse(raw) as Partial<Persisted>;
+    return {
+      ...initialState,
+      ...saved,
+      // Merge settings so keys added in a later build still get defaults.
+      settings: { ...initialState.settings, ...(saved.settings ?? {}) },
+      profile: { ...initialState.profile, ...(saved.profile ?? {}) },
+    };
+  } catch {
+    return initialState;
+  }
+}
+
 const Ctx = createContext<StoreCtx | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useReducer(reducer, undefined, loadPersisted);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
 
@@ -193,6 +205,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setToastMsg(null), 2000);
   }, []);
+
+  useEffect(() => {
+    try {
+      const { favorites, downloads, history, addons, settings, profile } = state;
+      localStorage.setItem(PERSIST_KEY, JSON.stringify({ favorites, downloads, history, addons, settings, profile }));
+    } catch {
+      /* storage full or unavailable */
+    }
+  }, [state]);
 
   const isFavorite = useCallback((id: string) => state.favorites.includes(id), [state.favorites]);
 
@@ -209,7 +230,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const startDownload = useCallback(
     (titleId: string, opts?: { episode?: number; quality?: Settings['defaultQuality'] }) => {
-      const t = TITLE_BY_ID[titleId];
+      const t = getTitle(titleId);
       if (!t) return;
       const q = (opts?.quality && opts.quality !== 'Auto' ? opts.quality : state.settings.defaultQuality === 'Auto' ? '1080p' : state.settings.defaultQuality) as DownloadItem['quality'];
       const sizeGb = q === '4K' ? 3.2 : q === '1080p' ? 1.4 : q === '720p' ? 0.7 : 0.35;

@@ -194,3 +194,36 @@
   grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
 }
 .grid .poster-card { width: 100%; }
+
+/* ---------- Async states ---------- */
+.loading {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 48px 16px; color: var(--text-3); font-size: 13px;
+}
+.spinner {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2.5px solid var(--surface-3, rgba(255,255,255,.12));
+  border-top-color: var(--accent, #6c5ce7);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.ep-badge {
+  position: absolute; left: 6px; bottom: 6px; z-index: 2;
+  background: rgba(0,0,0,.72); color: #fff; font-size: 10px; font-weight: 600;
+  padding: 2px 6px; border-radius: 5px;
+}
+.season-row { display: flex; gap: 8px; overflow-x: auto; padding: 0 16px 10px; }
+.ep-grid {
+  display: grid; gap: 10px; padding: 0 16px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+.ep-card {
+  position: relative; border-radius: 10px; overflow: hidden; text-align: left;
+  background: var(--surface-2, rgba(255,255,255,.06)); border: 1px solid transparent;
+  cursor: pointer;
+}
+.ep-card.on { border-color: var(--accent, #6c5ce7); }
+.ep-card .ep-thumb { aspect-ratio: 16/9; background-size: cover; background-position: center; }
+.ep-card .ep-meta { padding: 6px 8px; }
+.ep-card .ep-no { font-size: 12px; font-weight: 600; color: var(--text); }
+.ep-card .ep-dur { font-size: 11px; color: var(--text-3); }

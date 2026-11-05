@@ -16,3 +16,4 @@ android/.idea/
 
 # Test artifacts
 .agent_tmp/
+tests/.unit.build.mjs

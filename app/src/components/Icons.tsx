@@ -144,3 +144,7 @@ export const IconLogo = ({ size = 28, className }: P) => (
     <path d="M10 9.5v5l4.5-2.5z" fill="#fff" />
   </svg>
 );
+
+export const IconWifiOff = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M2 2l20 20" /><path d="M8.5 16.4a5 5 0 0 1 7 0" /><path d="M5 12.9a10 10 0 0 1 3.5-2.1" /><path d="M15.5 10.8A10 10 0 0 1 19 12.9" /><path d="M12 20h.01" /></svg>
+);

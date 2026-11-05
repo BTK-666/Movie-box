@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { NOVELS } from '../data/catalog';
+import { optimizeImage } from '../lib/img';
 import { IconSearch, IconStar, IconChevronRight } from '../components/Icons';
 
 const GENRES = ['All', 'Xianxia', 'Romance', 'Sci-Fi', 'Fantasy', 'Martial Arts'];
@@ -31,7 +32,7 @@ export default function NovelHub() {
       <div className="scroll">
         <div
           className="hero"
-          style={{ backgroundImage: `url(${featured.cover})`, aspectRatio: '16/9' }}
+          style={{ backgroundImage: `url(${optimizeImage(featured.cover, window.innerWidth, 70)})`, aspectRatio: '16/9' }}
           onClick={() => nav(`/novels/${featured.id}`)}
         >
           <div className="hero-body">
@@ -56,7 +57,7 @@ export default function NovelHub() {
         <div className="novel-grid">
           {list.map((n) => (
             <button key={n.id} className="novel-card" style={{ textAlign: 'left' }} onClick={() => nav(`/novels/${n.id}`)}>
-              <div className="novel-cover" style={{ backgroundImage: `url(${n.cover})` }} />
+              <div className="novel-cover" style={{ backgroundImage: `url(${optimizeImage(n.cover, 160)})` }} />
               <div className="novel-info">
                 <div className="novel-title clamp2">{n.title}</div>
                 <div className="novel-author ellipsis">{n.author}</div>

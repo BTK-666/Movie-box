@@ -1,7 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SHORTS } from '../data/catalog';
+import { fetchShorts, type ShortItem } from '../data/api';
+import { optimizeImage } from '../lib/img';
+import { useAsync } from '../lib/useAsync';
 import { useStore } from '../lib/store';
+import { Loading, ErrorState } from '../components/ui';
 import {
   IconBack,
   IconHeart,
@@ -17,31 +20,79 @@ export default function ShortTV() {
   const { toast } = useStore();
   const [idx, setIdx] = useState(0);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
-  const [muted, setMuted] = useState(false);
-  const [prog, setProg] = useState(0);
+  const [muted, setMuted] = useState(true);
+  const [paused, setPaused] = useState(false);
   const startY = useRef<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  const s = SHORTS[idx];
+  const { data, loading, error, reload } = useAsync(() => fetchShorts(1, 20), []);
+  const list: ShortItem[] = data ?? [];
+  const s = list[idx];
 
-  const go = (dir: number) => {
-    const next = Math.max(0, Math.min(SHORTS.length - 1, idx + dir));
-    setIdx(next);
-    setProg(0);
-  };
+  const go = useCallback(
+    (dir: number) => {
+      setIdx((i) => Math.max(0, Math.min(list.length - 1, i + dir)));
+    },
+    [list.length],
+  );
 
-  React.useEffect(() => {
-    const iv = window.setInterval(() => {
-      setProg((p) => (p >= 100 ? (go(1), 0) : p + 2));
-    }, 120);
-    return () => window.clearInterval(iv);
+  // Autoplay the active short. The element is keyed by URL, so this only has to
+  // kick playback off after a swipe.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = 0;
+    const p = v.play();
+    if (p && typeof p.catch === 'function') p.catch(() => setPaused(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx]);
+  }, [s?.videoUrl]);
+
+  if (loading && !list.length) {
+    return (
+      <div className="shorts-wrap">
+        <Loading label="Loading shorts…" />
+      </div>
+    );
+  }
+
+  if (error && !list.length) {
+    return (
+      <div className="shorts-wrap">
+        <ErrorState message={error} onRetry={reload} />
+      </div>
+    );
+  }
+
+  if (!s) {
+    return (
+      <div className="shorts-wrap">
+        <div className="empty">
+          <div className="empty-title">No shorts available</div>
+          <button className="btn btn-ghost" style={{ marginTop: 14 }} onClick={() => nav('/')}>
+            Go home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const togglePlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) {
+      const p = v.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+      setPaused(false);
+    } else {
+      v.pause();
+      setPaused(true);
+    }
+  };
 
   return (
     <div className="shorts-wrap">
       <div
         className="short-slide"
-        style={{ backgroundImage: `url(${s.thumb})` }}
         onWheel={(e) => {
           if (Math.abs(e.deltaY) > 30) go(e.deltaY > 0 ? 1 : -1);
         }}
@@ -53,6 +104,27 @@ export default function ShortTV() {
           startY.current = null;
         }}
       >
+        <video
+          key={s.videoUrl}
+          ref={videoRef}
+          className="short-video"
+          src={s.videoUrl}
+          poster={optimizeImage(s.cover, 720)}
+          playsInline
+          loop
+          muted={muted}
+          preload="metadata"
+          onClick={togglePlay}
+          onPlay={() => setPaused(false)}
+          onPause={() => setPaused(true)}
+        />
+
+        {paused && (
+          <button className="short-pause" onClick={togglePlay} aria-label="Play">
+            <IconPlay size={40} />
+          </button>
+        )}
+
         <div className="short-top">
           <button className="icon-btn" style={{ color: '#fff' }} onClick={() => nav('/')} aria-label="Back">
             <IconBack />
@@ -69,7 +141,7 @@ export default function ShortTV() {
             <span className="ic" style={{ color: liked[s.id] ? 'var(--accent-2)' : '#fff' }}>
               <IconHeart size={22} fill={liked[s.id] ? 'currentColor' : 'none'} />
             </span>
-            {liked[s.id] ? 'Liked' : s.likes}
+            {s.likes > 0 ? s.likes : liked[s.id] ? 'Liked' : 'Like'}
           </button>
           <button className="s" onClick={() => toast('Saved to My List')}>
             <span className="ic">
@@ -83,25 +155,19 @@ export default function ShortTV() {
             </span>
             Share
           </button>
-          <button className="s" onClick={() => nav(`/detail/${'sh0' + ((idx % 4) + 1)}`)}>
-            <span className="ic">
-              <IconPlay size={20} />
-            </span>
-            Full
-          </button>
         </div>
 
         <div className="short-info">
-          <div className="short-show">{s.show}</div>
+          {s.groupName && <div className="short-show">{s.groupName}</div>}
           <div className="short-cap">{s.title}</div>
           <span className="short-ep">
-            <IconPlay size={12} /> Episode {s.episode}
+            <IconPlay size={12} /> {s.author}
           </span>
         </div>
 
         <div className="short-progress">
-          {SHORTS.map((_, i) => (
-            <i key={i} className="on" style={{ ['--p' as any]: i < idx ? '100%' : i === idx ? `${prog}%` : '0%' }} />
+          {list.slice(0, 12).map((_, i) => (
+            <i key={i} className="on" style={{ ['--p' as any]: i < idx ? '100%' : i === idx ? '45%' : '0%' }} />
           ))}
         </div>
       </div>

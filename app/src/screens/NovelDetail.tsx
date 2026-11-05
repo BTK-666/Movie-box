@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { NOVELS } from '../data/catalog';
+import { chapterTitle, getProgress } from '../lib/novel';
+import { optimizeImage } from '../lib/img';
 import { useStore } from '../lib/store';
 import {
   IconBack,
@@ -31,10 +33,11 @@ export default function NovelDetail() {
   }
 
   const fav = isFavorite(n.id);
-  const chapters = Array.from({ length: Math.min(40, n.chapters) }).map((_, i) => ({
+  const resume = getProgress(n.id);
+  const chapters = Array.from({ length: Math.min(60, n.chapters) }).map((_, i) => ({
     no: i + 1,
-    title: ['Awakening', 'The First Trial', 'Blood Moon', 'Hidden Path', 'The Mentor', 'Storm Rising', 'Broken Chains', 'Ascension'][i % 8] + ` ${i + 1}`,
-    date: `${1 + (i % 28)}d ago`,
+    title: chapterTitle(n.id, i + 1),
+    date: i + 1 === resume ? 'Reading now' : `${1 + (i % 28)}d ago`,
   }));
 
   return (
@@ -58,7 +61,7 @@ export default function NovelDetail() {
 
       <div className="scroll">
         <div className="novel-detail-head">
-          <div className="novel-detail-cover" style={{ backgroundImage: `url(${n.cover})` }} />
+          <div className="novel-detail-cover" style={{ backgroundImage: `url(${optimizeImage(n.cover, 240)})` }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.2 }}>{n.title}</div>
             <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 6 }}>{n.author}</div>
@@ -79,9 +82,9 @@ export default function NovelDetail() {
         <div style={{ padding: '0 16px' }}>
           <button
             className="btn btn-primary btn-block"
-            onClick={() => toast('Opening reader…')}
+            onClick={() => nav(`/novels/${n.id}/read?ch=${resume}`)}
           >
-            <IconPlay size={17} /> Start Reading
+            <IconPlay size={17} /> {resume > 1 ? `Continue · Ch ${resume}` : 'Start Reading'}
           </button>
         </div>
 
@@ -101,7 +104,7 @@ export default function NovelDetail() {
                 key={c.no}
                 className="chapter-row"
                 style={{ width: '100%', textAlign: 'left' }}
-                onClick={() => toast(`Chapter ${c.no}`)}
+                onClick={() => nav(`/novels/${n.id}/read?ch=${c.no}`)}
               >
                 <span className="num">{c.no}</span>
                 <span className="ct ellipsis">{c.title}</span>

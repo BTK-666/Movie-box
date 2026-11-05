@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { searchTitles, TITLES, Title } from '../data/catalog';
+import type { Title } from '../data/catalog';
+import { searchTitles as apiSearch, fetchTrending } from '../data/api';
+import { rememberTitles, cachedTitles } from '../data/cache';
+import { posterImage } from '../lib/img';
+import { useAsync } from '../lib/useAsync';
 import { useStore } from '../lib/store';
 import {
   IconBack,
@@ -11,27 +15,27 @@ import {
   IconHistory,
   IconTrash,
 } from '../components/Icons';
-import { EmptyState } from '../components/ui';
-
-const TRENDING_SEARCHES = [
-  'Shadow Protocol',
-  'Broken Empire',
-  'Anime',
-  'K-Drama',
-  'Action',
-  'Sci-Fi',
-  'ShortTV',
-  'Thriller',
-];
+import { EmptyState, Loading, ErrorState } from '../components/ui';
 
 const GENRE_FILTERS = ['All', 'Action', 'Drama', 'Sci-Fi', 'Anime', 'Romance', 'Thriller', 'Crime'];
+const RECENT_KEY = 'mb-recent-searches';
+
+function loadRecent(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    return raw ? (JSON.parse(raw) as string[]).slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+}
 
 export default function Search() {
   const nav = useNavigate();
-  const { state, dispatch, toast } = useStore();
+  const { toast } = useStore();
   const [q, setQ] = useState('');
+  const [debounced, setDebounced] = useState('');
   const [genre, setGenre] = useState('All');
-  const [recent, setRecent] = useState<string[]>(['Shadow Protocol', 'Anime']);
+  const [recent, setRecent] = useState<string[]>(loadRecent);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -39,24 +43,49 @@ export default function Search() {
     return () => window.clearTimeout(t);
   }, []);
 
-  const results = useMemo(() => {
-    let r = q.trim() ? searchTitles(q) : [];
-    if (genre !== 'All') r = r.filter((t) => t.genres.includes(genre));
-    return r;
-  }, [q, genre]);
+  // Debounce so each keystroke doesn't fire a signed request.
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(q.trim()), 350);
+    return () => window.clearTimeout(t);
+  }, [q]);
 
+  const { data: results, loading, error, reload } = useAsync(
+    () => (debounced ? apiSearch(debounced) : Promise.resolve([] as Title[])),
+    [debounced],
+  );
+
+  useEffect(() => {
+    if (results?.length) rememberTitles(results);
+  }, [results]);
+
+  const trending = useAsync(() => fetchTrending(), []);
   const discover = useMemo(() => {
-    let list = TITLES.filter((t) => t.trending || t.newRelease);
-    if (genre !== 'All') list = list.filter((t) => t.genres.includes(genre));
+    const list = trending.data?.length ? trending.data : cachedTitles();
     return list.slice(0, 24);
-  }, [genre]);
+  }, [trending.data]);
+
+  const filtered = useMemo(() => {
+    const list = results ?? [];
+    return genre === 'All' ? list : list.filter((t) => t.genres.includes(genre));
+  }, [results, genre]);
+
+  const persist = (list: string[]) => {
+    setRecent(list);
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+    } catch {
+      /* storage unavailable */
+    }
+  };
 
   const commit = (term: string) => {
     setQ(term);
-    setRecent((r) => [term, ...r.filter((x) => x !== term)].slice(0, 8));
+    setDebounced(term.trim());
+    persist([term, ...recent.filter((x) => x !== term)].slice(0, 8));
   };
 
   const hasQuery = q.trim().length > 0;
+  const showResults = debounced.length > 0;
 
   return (
     <>
@@ -96,23 +125,28 @@ export default function Search() {
       </div>
 
       <div className="scroll">
-        {hasQuery ? (
-          results.length > 0 ? (
-            <div style={{ paddingTop: 8 }}>
-              <div className="search-section" style={{ padding: '12px 16px 4px' }}>
-                <h4>{results.length} results</h4>
+        {showResults ? (
+          <>
+            {loading && !results?.length && <Loading label="Searching…" />}
+            {error && <ErrorState message={error} onRetry={reload} />}
+            {!loading && !error && filtered.length > 0 && (
+              <div style={{ paddingTop: 8 }}>
+                <div className="search-section" style={{ padding: '12px 16px 4px' }}>
+                  <h4>{filtered.length} results</h4>
+                </div>
+                {filtered.map((t) => (
+                  <ResultRow key={t.id} t={t} onOpen={() => nav(`/detail/${t.id}`)} />
+                ))}
               </div>
-              {results.map((t) => (
-                <ResultRow key={t.id} t={t} onOpen={() => nav(`/detail/${t.id}`)} />
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              icon={<IconSearch size={30} />}
-              title="No results found"
-              subtitle={`Nothing matched "${q}". Try a different title or genre.`}
-            />
-          )
+            )}
+            {!loading && !error && filtered.length === 0 && (
+              <EmptyState
+                icon={<IconSearch size={30} />}
+                title="No results found"
+                subtitle={`Nothing matched "${debounced}". Try a different title or genre.`}
+              />
+            )}
+          </>
         ) : (
           <>
             {recent.length > 0 && (
@@ -123,7 +157,7 @@ export default function Search() {
                   <button
                     className="section-more"
                     onClick={() => {
-                      setRecent([]);
+                      persist([]);
                       toast('Recent cleared');
                     }}
                   >
@@ -143,7 +177,7 @@ export default function Search() {
             <div className="search-section">
               <h4>Trending Searches</h4>
               <div className="search-tags">
-                {TRENDING_SEARCHES.map((r) => (
+                {['Inception', 'Avatar', 'Anime', 'K-Drama', 'Action', 'Sci-Fi', 'Thriller'].map((r) => (
                   <button key={r} className="chip" onClick={() => commit(r)}>
                     {r}
                   </button>
@@ -154,6 +188,7 @@ export default function Search() {
             <div className="search-section">
               <h4>Discover {genre !== 'All' ? `· ${genre}` : ''}</h4>
             </div>
+            {trending.loading && !discover.length && <Loading label="Loading…" />}
             <div className="grid">
               {discover.map((t) => (
                 <ResultPoster key={t.id} t={t} onOpen={() => nav(`/detail/${t.id}`)} />
@@ -170,16 +205,18 @@ export default function Search() {
 function ResultRow({ t, onOpen }: { t: Title; onOpen: () => void }) {
   return (
     <button className="result-row" onClick={onOpen} style={{ width: '100%', textAlign: 'left' }}>
-      <div className="result-poster" style={{ backgroundImage: `url(${t.poster})` }} />
+      <div className="result-poster" style={{ backgroundImage: `url(${posterImage(t.poster, 76)})` }} />
       <div className="result-body">
         <div className="result-title ellipsis">{t.title}</div>
         <div className="result-meta">
-          <span className="rating-pill">
-            <IconStar size={11} /> {t.rating.toFixed(1)}
-          </span>
-          <span>{t.year}</span>
+          {t.rating > 0 && (
+            <span className="rating-pill">
+              <IconStar size={11} /> {t.rating.toFixed(1)}
+            </span>
+          )}
+          {t.year > 0 && <span>{t.year}</span>}
           <span>·</span>
-          <span>{t.episodes ? `${t.episodes} ep` : t.duration}</span>
+          <span>{t.type === 'tv' ? 'Series' : 'Movie'}</span>
         </div>
         <div className="result-genres">
           {t.genres.slice(0, 3).map((g) => (
@@ -194,13 +231,14 @@ function ResultRow({ t, onOpen }: { t: Title; onOpen: () => void }) {
 function ResultPoster({ t, onOpen }: { t: Title; onOpen: () => void }) {
   return (
     <button className="poster-card" onClick={onOpen} style={{ width: '100%' }}>
-      <div className="poster-art" style={{ backgroundImage: `url(${t.poster})` }}>
-        {t.quality && <span className="poster-badge">{t.quality}</span>}
+      <div className="poster-art" style={{ backgroundImage: `url(${posterImage(t.poster, Math.round((window.innerWidth - 44) / 2))})` }}>
+        <span className="poster-badge">{t.type === 'tv' ? 'SERIES' : 'MOVIE'}</span>
       </div>
       <div className="poster-meta">
         <span className="poster-title ellipsis">{t.title}</span>
         <span className="poster-sub ellipsis">
-          {t.year} · {t.genres[0]}
+          {t.year > 0 ? `${t.year} · ` : ''}
+          {t.genres[0] ?? ''}
         </span>
       </div>
     </button>
