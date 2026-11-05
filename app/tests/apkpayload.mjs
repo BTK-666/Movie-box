@@ -1,29 +1,32 @@
 import { chromium } from 'playwright';
-// Verify the EXACT payload bundled into the APK (android/app/src/main/assets/public)
-const b = await chromium.launch();
+// Smoke-check the payload that ships inside the APK. `npx cap sync android`
+// copies `dist/` into `android/app/src/main/assets/public`, so serving `dist/`
+// exercises the exact same bytes the WebView loads. Unlike tests/ui.spec.mjs,
+// this stays shallow on purpose: it only proves the bundled payload boots and
+// never points the player at the promo clip.
+const b = await chromium.launch(
+  process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {},
+);
 const pg = await b.newPage({ viewport: { width: 390, height: 844 } });
 const errs = [];
 pg.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
 pg.on('console', m => { if (m.type() === 'error') errs.push('CONSOLE ' + m.text()); });
-const blocked = [];
-await pg.route('**/*', r => {
-  const u = r.request().url();
-  if (u.startsWith('http://localhost:4173')) return r.continue();
-  blocked.push(u); return r.abort();
-});
+const adRequests = [];
+await pg.route('**/macdn.aoneroom.com/other/**', r => { adRequests.push(r.request().url()); r.abort(); });
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + m); };
 
 await pg.goto('http://localhost:4173/#/', { waitUntil: 'networkidle' });
 await pg.waitForTimeout(2500);
 ok((await pg.locator('.poster-art').count()) > 0, 'Home renders posters');
-const withArt = await pg.$$eval('.poster-art', els => els.filter(e => (e.getAttribute('style')||'').includes('data:image')).length);
-ok(withArt > 0, 'Posters carry embedded artwork (' + withArt + ')');
+const withArt = await pg.$$eval('.poster-art', els => els.filter(e => {
+  const s = e.getAttribute('style') || '';
+  return s.includes('data:image') || /url\("?https?:/.test(s);
+}).length);
+ok(withArt > 0, 'Posters carry artwork (' + withArt + ')');
 ok((await pg.locator('.bottom-nav').count()) > 0, 'Bottom nav present');
 
 for (const [name, route, sel] of [
-  ['Detail', '/#/detail/tv01', '.ep-row'],
-  ['Player', '/#/player/t01', '.player-scrub'],
   ['Search', '/#/search', '.search-bar'],
   ['Downloads', '/#/downloads', '.segmented'],
   ['Me', '/#/me', '.me-avatar'],
@@ -41,7 +44,18 @@ for (const [name, route, sel] of [
   await pg.waitForTimeout(900);
   ok((await pg.locator(sel).count()) > 0, name + ' renders (' + sel + ')');
 }
-ok(blocked.length === 0, 'No external requests needed (blocked=' + blocked.length + ')');
+
+// Open a real feed title and confirm the bundled payload never selects the ad.
+await pg.goto('http://localhost:4173/#/', { waitUntil: 'networkidle' });
+await pg.waitForSelector('.rail-scroll .poster-card', { timeout: 15000 });
+await pg.locator('.rail-scroll .poster-card').first().click();
+await pg.waitForSelector('.detail-title', { timeout: 15000 });
+await pg.locator('.detail-actions .btn-primary').click();
+await pg.waitForTimeout(3000);
+const src = await pg.locator('.video-el').getAttribute('src').catch(() => null);
+ok(!/macdn\.aoneroom\.com\/other\//.test(src ?? ''), 'Bundled payload does not select the promo clip');
+ok(adRequests.length === 0, 'Bundled payload never requests the promo clip (' + adRequests.length + ')');
+
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
 errs.slice(0, 10).forEach(e => console.log(e));
 await b.close();
