@@ -1,0 +1,19 @@
+node_modules/
+dist/
+tsconfig.tsbuildinfo
+
+# Android / Capacitor build output
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+android/app/src/main/assets/public/
+android/.idea/
+*.apk
+*.aab
+*.keystore
+
+# Test artifacts
+.agent_tmp/
+tests/.unit.build.mjs

@@ -1,0 +1,69 @@
+:root {
+  /* ---- Surfaces (dark-first) ---- */
+  --bg: #0a0a0f;
+  --bg-2: #101017;
+  --surface: #16161f;
+  --surface-2: #1d1d28;
+  --surface-3: #262634;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-2: rgba(255, 255, 255, 0.14);
+
+  /* ---- Text ---- */
+  --text: #f4f4f7;
+  --text-2: #b9b9c6;
+  --text-3: #7c7c8c;
+  --text-4: #55555f;
+
+  /* ---- Brand ---- */
+  --accent: #ffb01f;
+  --accent-2: #ff3d71;
+  --brand-grad: linear-gradient(96deg, #ff6a2b 0%, #ff2d78 100%);
+  --brand-grad-soft: linear-gradient(96deg, rgba(255, 106, 43, 0.18), rgba(255, 45, 120, 0.18));
+  --gold: #ffc24b;
+
+  /* ---- Semantic ---- */
+  --ok: #34d399;
+  --info: #60a5fa;
+  --warn: #fbbf24;
+  --danger: #ef4444;
+  --imdb: #f5c518;
+
+  /* ---- Radius ---- */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --r-pill: 999px;
+
+  /* ---- Shadow ---- */
+  --sh-1: 0 2px 10px rgba(0, 0, 0, 0.35);
+  --sh-2: 0 8px 28px rgba(0, 0, 0, 0.45);
+  --sh-glow: 0 6px 22px rgba(255, 61, 113, 0.35);
+
+  /* ---- Layout ---- */
+  --nav-h: 62px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --max-w: 480px;
+
+  /* ---- Motion ---- */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 240ms;
+}
+
+[data-theme='light'] {
+  --bg: #f5f5f8;
+  --bg-2: #ececf1;
+  --surface: #ffffff;
+  --surface-2: #f2f2f6;
+  --surface-3: #e6e6ee;
+  --line: rgba(0, 0, 0, 0.08);
+  --line-2: rgba(0, 0, 0, 0.14);
+  --text: #14141a;
+  --text-2: #45454f;
+  --text-3: #74747f;
+  --text-4: #9a9aa5;
+  --sh-1: 0 2px 10px rgba(0, 0, 0, 0.08);
+  --sh-2: 0 8px 28px rgba(0, 0, 0, 0.12);
+}

@@ -1,0 +1,8 @@
+# Build output
+*.apk
+*.aab
+*.keystore
+MovieBox.zip
+
+# Agent artifacts
+.agent_tmp/
