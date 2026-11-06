@@ -16,6 +16,10 @@ import {
   IconSubtitle,
   IconSettings,
   IconCast,
+  IconLock,
+  IconUnlock,
+  IconGlobe,
+  IconFit,
 } from './Icons';
 import { Sheet, SheetOption } from './ui';
 
@@ -90,6 +94,7 @@ export default function VideoPlayer({
   const [subLang, setSubLang] = useState('Off');
   const [failed, setFailed] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+  const [fit, setFit] = useState<'contain' | 'cover'>('contain');
   const triedRef = useRef<Set<string>>(new Set());
   const [hevcOk, setHevcOk] = useState<boolean | null>(null);
 
@@ -295,6 +300,7 @@ export default function VideoPlayer({
         <video
           ref={videoRef}
           className="vp-el"
+          style={{ objectFit: fit }}
           src={streamUrl}
           poster={title.backdrop}
           playsInline
@@ -397,7 +403,7 @@ export default function VideoPlayer({
                 <i style={{ width: `${pct}%` }} />
                 <b style={{ left: `${pct}%` }} />
               </div>
-              <span>-{fmt(Math.max(0, total - pos))}</span>
+              <span>{fmt(total)}</span>
             </div>
             <div className="vp-tools">
               <button className="pt" onClick={() => setSheet('quality')}>
@@ -405,6 +411,16 @@ export default function VideoPlayer({
               </button>
               <button className="pt" onClick={() => setSheet('speed')}>
                 {speed}
+              </button>
+              <button
+                className="pt"
+                onClick={() => setFit((f) => (f === 'contain' ? 'cover' : 'contain'))}
+                aria-label="Fit"
+              >
+                <IconFit size={16} /> Fit
+              </button>
+              <button className="pt" onClick={() => setSheet('subtitle')} aria-label="Language">
+                <IconGlobe size={16} /> Language
               </button>
               <button
                 className="pt"
@@ -439,8 +455,9 @@ export default function VideoPlayer({
         {controls && (
           <div className="vp-lock">
             <button onClick={() => setLocked((l) => !l)} aria-label="Lock">
-              {locked ? '🔒' : '🔓'}
+              {locked ? <IconLock size={20} /> : <IconUnlock size={20} />}
             </button>
+            {!locked && <span className="vp-lock-hint">Tap to Lock</span>}
           </div>
         )}
       </div>

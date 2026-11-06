@@ -170,3 +170,9 @@ export const IconCheckSquare = ({ size, className }: P) => (
 export const IconCloudDownload = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><path d="M7 16.5a4 4 0 0 1-.4-8 5.2 5.2 0 0 1 10 1.2A3.6 3.6 0 0 1 16.6 16" /><path d="M12 11.5v7" /><path d="m9.2 15.8 2.8 2.8 2.8-2.8" /></svg>
 );
+
+export const IconUnlock = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7.5A3.5 3.5 0 0 1 14.6 6" /></svg>
+);export const IconFit = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M4 9V4h5" /><path d="M20 15v5h-5" /><path d="M15 4h5v5" /><path d="M9 20H4v-5" /></svg>
+);

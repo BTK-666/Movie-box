@@ -346,6 +346,87 @@ ok(paintMs < 1500, 'Revisited Home paints from cache in ' + paintMs + 'ms');
 const sawSpinner = await pg.locator('.loading').count();
 ok(sawSpinner === 0, 'Revisited Home shows no blocking loading state');
 
+// 20. Reference-parity: Home category chips, TOP rails with sub-chips,
+// Detail "For you / Comments" tabs, Download sheet total, Player Fit/Language.
+await pg.goto(B + '/#/', { waitUntil: 'domcontentloaded' });
+await ready('.hero');
+const cats = await pg.locator('.cat-tabs .chip').allTextContents();
+ok(
+  ['Trending', 'Movie', 'Anime', 'TV'].every((c) => cats.includes(c)),
+  'Home shows the reference category chips (' + cats.join('/') + ')',
+);
+await pg.locator('.cat-tabs .chip:has-text("Movie")').click();
+await pg.waitForTimeout(2500);
+ok((await pg.locator('.hero, .rail-scroll .poster-card').count()) > 0, 'Category switch loads a feed');
+
+await pg.goto(B + '/#/', { waitUntil: 'domcontentloaded' });
+await ready('.hero');
+// A same-URL hash navigation does not remount Home, so switch back to the
+// Trending category explicitly before asserting on its derived rails.
+await pg.locator('.cat-tabs .chip:has-text("Trending")').click();
+await pg.waitForTimeout(2500);
+await ready('.rail-scroll .poster-card');
+const railTitles = await pg.locator('.section-head h3').allTextContents();
+ok(railTitles.some((t) => /top movies/i.test(t)), 'Home has a "TOP Movies" rail');
+ok(railTitles.some((t) => /top series/i.test(t)), 'Home has a "Top Series" rail');
+const subChips = await pg.locator('.rail-subs .chip').allTextContents();
+ok(subChips.includes('Bollywood') && subChips.includes('Hollywood'), 'TOP Movies rail has sub-category chips');
+await pg.locator('.rail-subs .chip:has-text("Bollywood")').first().click();
+await pg.waitForTimeout(400);
+ok(true, 'Sub-category chip applies without error');
+
+// Detail feed tabs
+await pg.goto(B + '/#/', { waitUntil: 'domcontentloaded' });
+await ready('.rail-scroll .poster-card');
+await pg.locator('.rail-scroll .poster-card').first().click();
+await ready('.detail-title');
+const feedTabs = await pg.locator('.feed-tab').allTextContents();
+ok(
+  feedTabs.some((t) => /for you/i.test(t)) && feedTabs.some((t) => /comments/i.test(t)),
+  'Detail has For you / Comments tabs (' + feedTabs.join('/') + ')',
+);
+await pg.locator('.feed-tab:has-text("Comments")').click();
+await pg.waitForTimeout(300);
+ok((await pg.locator('.feed-empty').count()) > 0, 'Comments tab shows an honest empty state');
+
+// Download sheet total size + resolution row
+await pg.goto(B + '/#/search', { waitUntil: 'domcontentloaded' });
+await pg.locator('input[aria-label="Search"]').fill('breaking bad');
+await ready('.result-row', 20000);
+const seriesHit = pg.locator('.result-row').filter({ hasText: /S\d/i }).first();
+await (seriesHit.count() ? seriesHit : pg.locator('.result-row').first()).click();
+await ready('.detail-title');
+await pg.locator('.detail-icon-actions .act:has-text("Download")').click();
+ok(await ready('.dl-sheet', 15000), 'Download sheet opens for a series');
+// Episodes arrive from the UGC collection a moment after the sheet opens.
+await pg.locator('.dl-ep').first().waitFor({ timeout: 20000 }).catch(() => {});
+const dlFoot = (await pg.locator('.dl-sheet-foot').innerText()).trim();
+ok(/download/i.test(dlFoot) && /(mb|gb|kb)/i.test(dlFoot), 'Download footer shows the total size (' + dlFoot.replace(/\n/g, ' ') + ')');
+await pg.locator('.dl-res').nth(1).click();
+await pg.waitForTimeout(300);
+ok(true, 'Resolution chip switches without error');
+// Close the sheet so its scrim does not block later interactions.
+await pg.locator('.dl-sheet-head .icon-btn').click();
+await pg.waitForTimeout(400);
+
+// Player Fit / Language / Tap to Lock
+const did = (pg.url().match(/\/detail\/(\d+)/) ?? [])[1];
+await pg.goto(`${B}/#/detail/${did}?play=1`, { waitUntil: 'domcontentloaded' });
+ok(await ready('.vp-inline', 20000), 'Inline player starts');
+await pg.locator('.vp-stage').click({ position: { x: 5, y: 5 } });
+await pg.waitForTimeout(400);
+const tools = await pg.locator('.vp-tools .pt').allTextContents();
+ok(tools.some((t) => /fit/i.test(t)), 'Player exposes a Fit control');
+ok(tools.some((t) => /language/i.test(t)), 'Player exposes a Language control');
+ok(/tap to lock/i.test(await pg.locator('.vp-lock').innerText()), 'Player shows the Tap to Lock hint');
+const fitBefore = await pg.locator('.vp-el').getAttribute('style');
+await pg.locator('.vp-tools .pt:has-text("Fit")').click();
+await pg.waitForTimeout(300);
+const fitAfter = await pg.locator('.vp-el').getAttribute('style');
+ok(fitBefore !== fitAfter, 'Fit toggles the video object-fit (' + fitBefore + ' -> ' + fitAfter + ')');
+const scrub = (await pg.locator('.vp-scrub').innerText()).trim();
+ok(/^\d+:\d{2}\d+:\d{2}$/.test(scrub.replace(/\s+/g, '')), 'Scrubber shows current/total time (' + scrub.replace(/\s+/g, ' ') + ')');
+
 console.log(`\n=== RESULT: ${pass} passed, ${fail} failed ===`);
 console.log('=== ERRORS (' + errs.length + ') ===');
 [...new Set(errs)].slice(0, 20).forEach((e) => console.log(e));

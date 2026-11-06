@@ -39,7 +39,7 @@ Tests:
 npm run test:unit             # 131 tests: crypto vectors, adapters, live API, ad filtering (Node)
 npm run test:media            # real-Chromium proof of the WebView media path (Referer fix)
 npm run test:e2e              # boots dist/ and proves a real stream plays end-to-end
-npm run test:ui               # 74 interaction tests (Playwright, 390x844)
+npm run test:ui               # 91 interaction tests (Playwright, 390x844)
 npm test                      # unit + media + e2e + e2e:series + ui
 ```
 
@@ -193,3 +193,39 @@ Public URL: `https://work-1-cztekbhstulgynne.prod-runtime.all-hands.dev/`
 - **Real data sources**: shorts = `business/shorts` (`media.video[].url`),
   live TV = `live/tv-channel-list-by-country`, sports = `sport/match-list` +
   `sport-news/trending`.
+
+## Video Drop server (workspace tool, not part of the app)
+
+`/workspace/videodrop/server.py` is a standalone upload server used to get a
+video clip to the agent so it can be analysed. It is **outside this repo** and
+not committed here.
+
+- Public URL: `https://work-1-cztekbhstulgynne.prod-runtime.all-hands.dev/` (port 12000)
+- Uploads are chunked (8 MB) because the public reverse proxy 502s long requests.
+- Deletes are **soft** — uploads move to `/workspace/videodrop/trash/`, never
+  hard-deleted. Do not run `rm -rf` on `uploads/`; it can destroy a user's clip.
+- See `/workspace/videodrop/RESTART.md` for endpoints and restart steps.
+
+## Reference-UI parity (video-driven redesign)
+
+The home/search/detail/download/player surfaces were rebuilt to match the
+reference screen recording the user supplied:
+
+- **Home** — category chips `Football / Trending / Movie / Anime / Cricket / TV`;
+  the Trending tab derives `TOP Movies` and `Top Series` rails from the
+  catalogue's highest-rated titles (the backend exposes no named feed), and only
+  those two rails carry the sub-category chips
+  (movie: Bollywood / South Indian / Hollywood / New;
+  tv: Indian Drama / Reality-TV / Anime / Asian Drama / Western).
+- **Search** — content-type chips `All / Movie/Series / Sports / Music / Education`
+  (genre-hint matching, since the API has no type facet).
+- **Detail** — `For you / Comments` tabs (the comments API is not reachable from
+  the WebView, so the tab shows an honest empty state), season chips `All / 01…`,
+  and the `Resources · Uploaded by <name>` line.
+- **Download sheet** — resolution row `1080P/720P/480P/360P`, `S01 E01` rows with
+  size + duration, and a footer total (`Download · 4.09GB`). It shows a loading
+  state until the UGC collection arrives.
+- **Player** — `Fit` (object-fit toggle), `Language`, and a `Tap to Lock` hint
+  beside the lock icon.
+
+The parity assertions live at the end of `tests/ui.spec.mjs` (suite #20).

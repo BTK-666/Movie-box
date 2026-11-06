@@ -13,7 +13,7 @@ const shots = [
   ['settings', '/settings'],
   ['browse', '/browse/movie'],
 ];
-const b = await chromium.launch();
+const b = await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox']});
 const pg = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 for (const [name, r] of shots) {
   await pg.goto('http://localhost:5173/#' + r, { waitUntil: 'networkidle' });

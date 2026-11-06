@@ -17,7 +17,23 @@ import {
 } from '../components/Icons';
 import { EmptyState, Loading, ErrorState } from '../components/ui';
 
-const GENRE_FILTERS = ['All', 'Action', 'Drama', 'Sci-Fi', 'Anime', 'Romance', 'Thriller', 'Crime'];
+// Content-type chips shown under the search field, matching the reference
+// design (All / Movie-Series / Sports / Music / Education).
+const TYPE_FILTERS = ['All', 'Movie/Series', 'Sports', 'Music', 'Education'] as const;
+type TypeFilter = (typeof TYPE_FILTERS)[number];
+
+const GENRE_HINTS: Record<Exclude<TypeFilter, 'All' | 'Movie/Series'>, RegExp> = {
+  Sports: /sport|cricket|football|match/i,
+  Music: /music|song/i,
+  Education: /education|documentary|kids|learning/i,
+};
+
+function matchesType(t: Title, f: TypeFilter): boolean {
+  if (f === 'All') return true;
+  if (f === 'Movie/Series') return t.type === 'movie' || t.type === 'tv';
+  return t.genres.some((g) => GENRE_HINTS[f].test(g));
+}
+
 const RECENT_KEY = 'mb-recent-searches';
 
 function loadRecent(): string[] {
@@ -34,7 +50,7 @@ export default function Search() {
   const { toast } = useStore();
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [genre, setGenre] = useState('All');
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("All");
   const [recent, setRecent] = useState<string[]>(loadRecent);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -66,8 +82,8 @@ export default function Search() {
 
   const filtered = useMemo(() => {
     const list = results ?? [];
-    return genre === 'All' ? list : list.filter((t) => t.genres.includes(genre));
-  }, [results, genre]);
+    return list.filter((t) => matchesType(t, typeFilter));
+  }, [results, typeFilter]);
 
   const persist = (list: string[]) => {
     setRecent(list);
@@ -117,8 +133,12 @@ export default function Search() {
       </div>
 
       <div className="chip-row" style={{ marginTop: 12 }}>
-        {GENRE_FILTERS.map((g) => (
-          <button key={g} className={`chip ${genre === g ? 'active' : ''}`} onClick={() => setGenre(g)}>
+        {TYPE_FILTERS.map((g) => (
+          <button
+            key={g}
+            className={`chip ${typeFilter === g ? 'active' : ''}`}
+            onClick={() => setTypeFilter(g)}
+          >
             {g}
           </button>
         ))}
@@ -186,7 +206,7 @@ export default function Search() {
             </div>
 
             <div className="search-section">
-              <h4>Discover {genre !== 'All' ? `· ${genre}` : ''}</h4>
+              <h4>Discover {typeFilter !== 'All' ? `· ${typeFilter}` : ''}</h4>
             </div>
             {trending.loading && !discover.length && <Loading label="Loading…" />}
             <div className="grid">

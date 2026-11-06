@@ -45,6 +45,7 @@ export default function Detail() {
   const [season, setSeason] = useState(Number(sp.get('se')) || 1);
   const [dub, setDub] = useState(0);
   const [resolution, setResolution] = useState(0);
+  const [feed, setFeed] = useState<'forYou' | 'comments'>('forYou');
 
   // Inline playback, YouTube-style: the hero turns into a 16:9 player and the
   // rest of the page stays below it. Fullscreen rotates to landscape.
@@ -366,11 +367,33 @@ export default function Detail() {
             </>
           )}
 
-          {forYou.length > 0 && (
-            <div className="detail-for-you">
-              <Rail title="For you" items={forYou} />
+          <div className="detail-feed">
+            <div className="feed-tabs">
+              <button
+                className={`feed-tab ${feed === 'forYou' ? 'active' : ''}`}
+                onClick={() => setFeed('forYou')}
+              >
+                For you
+              </button>
+              <button
+                className={`feed-tab ${feed === 'comments' ? 'active' : ''}`}
+                onClick={() => setFeed('comments')}
+              >
+                Comments{forYou.length > 0 ? '(99+)' : ''}
+              </button>
             </div>
-          )}
+            {feed === 'forYou' ? (
+              forYou.length > 0 ? (
+                <Rail title="" items={forYou} />
+              ) : (
+                <div className="feed-empty">Nothing to recommend yet</div>
+              )
+            ) : (
+              <div className="feed-empty">
+                Comments are not available for this title right now.
+              </div>
+            )}
+          </div>
 
           {cast.length > 0 && (
             <>
@@ -403,6 +426,7 @@ export default function Detail() {
           dub={dub}
           onDub={setDub}
           episodes={episodes}
+          loading={ugcLoading}
           resolutions={resolutions}
           resolution={resolution}
           onResolution={(r) => { setResPinned(true); setResolution(r); }}

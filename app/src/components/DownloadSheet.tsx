@@ -15,6 +15,15 @@ import {
 } from './Icons';
 import { Sheet } from './ui';
 
+/** Human size for the Download footer total ("188.1MB" style, like the reference). */
+function fmtBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)}GB`;
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)}MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)}KB`;
+  return `${Math.round(n)}B`;
+}
+
 export interface DownloadSheetProps {
   title: string;
   uploader?: string;
@@ -25,6 +34,8 @@ export interface DownloadSheetProps {
   dub: number;
   onDub: (i: number) => void;
   episodes: UgcEpisode[];
+  /** True while the episode list is still being fetched. */
+  loading?: boolean;
   resolutions: number[];
   resolution: number;
   onResolution: (r: number) => void;
@@ -42,6 +53,7 @@ export default function DownloadSheet({
   dub,
   onDub,
   episodes,
+  loading,
   resolutions,
   resolution,
   onResolution,
@@ -68,6 +80,11 @@ export default function DownloadSheet({
   const sizeFor = (ep: UgcEpisode) => {
     const r = ep.resources.find((x) => x.resolution === resolution) ?? ep.resources[0];
     return r?.sizeLabel ?? ep.sizeLabel;
+  };
+
+  const sizeBytesFor = (ep: UgcEpisode) => {
+    const r = ep.resources.find((x) => x.resolution === resolution) ?? ep.resources[0];
+    return r?.sizeBytes ?? ep.sizeBytes ?? 0;
   };
 
   return (
@@ -143,7 +160,11 @@ export default function DownloadSheet({
               </button>
             );
           })}
-          {episodes.length === 0 && <div className="dl-sheet-empty">No downloadable episodes for this season.</div>}
+          {episodes.length === 0 && (
+            <div className="dl-sheet-empty">
+              {loading ? 'Loading episodes…' : 'No downloadable episodes for this season.'}
+            </div>
+          )}
         </div>
 
         <div className="dl-sheet-foot">
@@ -159,7 +180,8 @@ export default function DownloadSheet({
             disabled={chosen.length === 0}
             onClick={() => onDownload(chosen, resolution)}
           >
-            <IconCloudDownload size={17} /> Download{chosen.length ? ` (${chosen.length})` : ''}
+            <IconCloudDownload size={17} /> Download
+            {chosen.length ? ` · ${fmtBytes(chosen.reduce((n, ep) => n + sizeBytesFor(ep), 0))}` : ''}
           </button>
         </div>
       </div>

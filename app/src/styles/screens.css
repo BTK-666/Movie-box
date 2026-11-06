@@ -579,3 +579,26 @@
   background: rgba(255, 255, 255, 0.16); color: #fff;
   font-size: 12px; font-weight: 700;
 }
+
+/* ============ Rail sub-category chips ============ */
+.rail-subs {
+  display: flex; gap: 8px; padding: 8px 16px 2px;
+  overflow-x: auto; scrollbar-width: none; flex-shrink: 0;
+}
+.rail-subs::-webkit-scrollbar { display: none; }
+.chip.sm { height: 26px; padding: 0 11px; font-size: 11.5px; background: var(--surface); }
+
+/* ============ Detail "For you / Comments" feed ============ */
+.detail-feed { margin-top: 22px; }
+.feed-tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--line); }
+.feed-tab {
+  padding: 0 0 10px; font-size: 14px; font-weight: 700; color: var(--text-3);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.feed-tab.active { color: var(--text); border-bottom-color: var(--accent-2); }
+.detail-feed .rail { margin-top: 14px; }
+.feed-empty { padding: 26px 0; color: var(--text-3); font-size: 13px; }
+
+/* Player lock chip with its "Tap to Lock" hint, matching the reference. */
+.vp-lock { display: flex; align-items: center; gap: 8px; }
+.vp-lock-hint { color: #fff; font-size: 11.5px; font-weight: 600; opacity: 0.85; text-shadow: 0 1px 4px rgba(0,0,0,0.6); }

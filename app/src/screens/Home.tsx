@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchHome } from '../data/api';
+import type { Rail as RailData } from '../data/catalog';
 import { rememberTitles, getTitle } from '../data/cache';
 import { backdropImage } from '../lib/img';
 import { useCachedAsync } from '../lib/useAsync';
@@ -16,37 +17,71 @@ import {
   IconCheck,
   IconStar,
   IconFire,
-  IconTv,
 } from '../components/Icons';
 
-const TAB_CHIPS = [
-  { id: 'trending', name: 'Trending' },
-  { id: 'movie', name: 'Movies' },
-  { id: 'tv', name: 'TV Series' },
-  { id: 'live', name: 'Live TV' },
+/**
+ * Home categories, mirroring the reference build: Football / Trending / Movie /
+ * Anime / Cricket / TV. Each maps to a tabId on the tab-operating endpoint.
+ * Several ids return the same generic feed, which is why they are grouped by
+ * what the backend actually serves rather than by label.
+ */
+const CATEGORIES: { id: string; name: string; tabId: string }[] = [
+  { id: 'football', name: 'Football', tabId: '7' },
+  { id: 'trending', name: 'Trending', tabId: '0' },
+  { id: 'movie', name: 'Movie', tabId: '2' },
+  { id: 'anime', name: 'Anime', tabId: '8' },
+  { id: 'cricket', name: 'Cricket', tabId: '13' },
+  { id: 'tv', name: 'TV', tabId: '5' },
 ];
+
+/** Sub-chips under a "TOP Movies" style rail, like the reference design. */
+const RAIL_SUBS: Record<string, string[]> = {
+  movie: ['Bollywood', 'South Indian', 'Hollywood', 'New'],
+  tv: ['Indian Drama', 'Reality-TV', 'Anime', 'Asian Drama', 'Western'],
+};
 
 export default function Home() {
   const nav = useNavigate();
   const { state, toast, isFavorite, dispatch } = useStore();
-  const [tab, setTab] = useState('trending');
+  const [cat, setCat] = useState('trending');
+  const [sub, setSub] = useState<Record<string, string>>({});
   const [heroIdx, setHeroIdx] = useState(0);
   const heroTimer = useRef<number | null>(null);
 
-  const { data, loading, error, reload } = useCachedAsync('home:0', () => fetchHome('0'), []);
+  const activeCat = CATEGORIES.find((c) => c.id === cat) ?? CATEGORIES[1];
+  const { data, loading, error, reload } = useCachedAsync(
+    `home:${activeCat.tabId}`,
+    () => fetchHome(activeCat.tabId),
+    [activeCat.tabId],
+  );
 
   useEffect(() => {
     if (data) rememberTitles(Object.values(data.titles));
   }, [data]);
 
   const heroes = useMemo(() => (data?.heroes ?? []).slice(0, 6), [data]);
-
   const rails = useMemo(() => {
-    const all = data?.rails ?? [];
-    if (tab === 'movie') return all.filter((r) => /movie|cinema|hollywood|bollywood/i.test(r.title));
-    if (tab === 'tv') return all.filter((r) => /tv|series|drama|anime/i.test(r.title));
-    return all.slice(0, 6);
-  }, [data, tab]);
+    const base = (data?.rails ?? []).filter((r) => r.items.length > 0);
+    if (cat !== 'trending') return base;
+
+    // The reference home puts "TOP Movies" and "Top Series" at the top, built
+    // from the catalogue's highest-rated titles rather than a named feed the
+    // backend does not expose.
+    const all = Object.values(data?.titles ?? {});
+    const byRating = (list: any[]) =>
+      [...list].sort((a, b) => b.rating - a.rating || b.year - a.year).slice(0, 12).map((t) => t.id);
+    const movies = byRating(all.filter((t) => t.type === 'movie' && t.rating > 0));
+    const series = byRating(all.filter((t) => t.type === 'tv' && t.rating > 0));
+
+    const derived: RailData[] = [];
+    if (movies.length) derived.push({ id: 'top-movies', title: 'TOP Movies', items: movies });
+    if (series.length) derived.push({ id: 'top-series', title: 'Top Series', items: series });
+    return [...derived, ...base];
+  }, [data, cat]);
+
+  useEffect(() => {
+    setHeroIdx(0);
+  }, [activeCat.tabId]);
 
   useEffect(() => {
     if (heroes.length < 2) return;
@@ -63,6 +98,15 @@ export default function Home() {
   const titleById = (id: string) => getTitle(id);
   const railItems = (ids: string[]) =>
     ids.map((id) => data?.titles[id]).filter(Boolean) as any[];
+
+  // Only the "TOP Movies" / "Top Series" rails carry the sub-category chips,
+  // matching the reference design; the rest stay as plain poster rails.
+  const subKeyFor = (railTitle: string) =>
+    /^top\s*series|^top\s*tv/i.test(railTitle)
+      ? 'tv'
+      : /^top\s*movies/i.test(railTitle)
+        ? 'movie'
+        : '';
 
   const continueItems = state.history
     .map((h) => ({ h, t: titleById(h.titleId) }))
@@ -95,9 +139,26 @@ export default function Home() {
         {loading && !data && <Loading label="Loading catalog…" />}
         {error && !data && <ErrorState message={error} onRetry={reload} />}
 
+        <div className="cat-tabs" role="tablist" aria-label="Categories">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c.id}
+              role="tab"
+              aria-selected={cat === c.id}
+              className={`chip ${cat === c.id ? 'active' : ''}`}
+              onClick={() => setCat(c.id)}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+
         {hero && (
           <>
-            <div className="hero fade-in" style={{ backgroundImage: `url(${backdropImage(hero.backdrop, window.innerWidth)})` }}>
+            <div
+              className="hero fade-in"
+              style={{ backgroundImage: `url(${backdropImage(hero.backdrop, window.innerWidth)})` }}
+            >
               <div className="hero-body">
                 <span className="hero-badge">
                   <IconFire size={12} /> #{heroIdx + 1} TRENDING
@@ -149,62 +210,66 @@ export default function Home() {
           </>
         )}
 
-        <div className="cat-tabs">
-          {TAB_CHIPS.map((t) => (
-            <button
-              key={t.id}
-              className={`chip ${tab === t.id ? 'active' : ''}`}
-              onClick={() => setTab(t.id)}
-            >
-              {t.name}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'live' ? (
+        {cat === 'trending' && continueItems.length > 0 && (
           <section className="rail">
-            <SectionHead title="Live Channels" onMore={() => nav('/live')} />
-            <div style={{ padding: '0 16px' }}>
-              <button className="btn btn-primary btn-block" onClick={() => nav('/live')}>
-                <IconTv size={18} /> Open Live TV
-              </button>
+            <SectionHead title="Continue Watching" onMore={() => nav('/history')} />
+            <div className="rail-scroll">
+              {continueItems.map(({ h, t }) => (
+                <PosterCard
+                  key={`${t!.id}-${h.episode ?? 'main'}`}
+                  t={t!}
+                  width={140}
+                  showProgress
+                  progress={h.progress}
+                  sub={h.episode ? `E${h.episode}` : t!.genres[0]}
+                />
+              ))}
             </div>
           </section>
-        ) : (
-          <>
-            {tab === 'trending' && continueItems.length > 0 && (
-              <section className="rail">
-                <SectionHead title="Continue Watching" onMore={() => nav('/history')} />
-                <div className="rail-scroll">
-                  {continueItems.map(({ h, t }) => (
-                    <PosterCard
-                      key={`${t!.id}-${h.episode ?? 'main'}`}
-                      t={t!}
-                      width={140}
-                      showProgress
-                      progress={h.progress}
-                      sub={h.episode ? `E${h.episode}` : t!.genres[0]}
-                    />
+        )}
+
+        {rails.map((r) => {
+          const key = subKeyFor(r.title);
+          const subs = key ? RAIL_SUBS[key] : undefined;
+          const picked = key ? sub[r.id] : undefined;
+          let items = railItems(r.items);
+          if (picked) {
+            const filtered = items.filter((t: any) =>
+              t.genres.some((g: string) => g.toLowerCase() === picked.toLowerCase()),
+            );
+            if (filtered.length) items = filtered;
+          }
+          return (
+            <section className="rail" key={r.id}>
+              <SectionHead title={r.title} onMore={() => nav(`/browse/${cat}`)} />
+              {subs && (
+                <div className="rail-subs">
+                  {subs.map((s) => (
+                    <button
+                      key={s}
+                      className={`chip sm ${picked === s ? 'active' : ''}`}
+                      onClick={() =>
+                        setSub((prev) => ({ ...prev, [r.id]: prev[r.id] === s ? '' : s }))
+                      }
+                    >
+                      {s}
+                    </button>
                   ))}
                 </div>
-              </section>
-            )}
-
-            {rails.map((r) => (
-              <Rail
-                key={r.id}
-                title={r.title}
-                items={railItems(r.items)}
-                onMore={() => nav(`/browse/${tab}`)}
-              />
-            ))}
-
-            {!loading && !error && rails.length === 0 && (
-              <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: 40 }}>
-                Nothing to show right now
+              )}
+              <div className="rail-scroll">
+                {items.map((t, i) => (
+                  <PosterCard key={t.id + i} t={t} width={122} />
+                ))}
               </div>
-            )}
-          </>
+            </section>
+          );
+        })}
+
+        {!loading && !error && rails.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: 40 }}>
+            Nothing to show right now
+          </div>
         )}
 
         <div style={{ height: 28 }} />
