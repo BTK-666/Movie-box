@@ -405,6 +405,16 @@ const sizeLabel = (bytes: number) => {
 
 const qualityOf = (res: number) => (res >= 2160 ? '4K' : res ? `${res}p` : 'Auto');
 
+/** Seconds -> "24:00" / "1:04:12"; empty for unknown durations. */
+export function fmtDuration(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return '';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+  return h > 0 ? `${h}:${mm}:${String(s).padStart(2, '0')}` : `${mm}:${String(s).padStart(2, '0')}`;
+}
+
 /**
  * Promotional clips MovieBox serves instead of the real file.
  *
@@ -567,16 +577,90 @@ async function ugcEpisodeStreams(subjectId: string, season: number, episode: num
  * the UGC collection labels ("S1EP1" … "S2EP12").
  */
 export async function ugcEpisodeCounts(subjectId: string): Promise<{ seasons: number; episodeCounts: Record<number, number> }> {
+  const col = await fetchUgcCollection(subjectId, 0);
+  const episodeCounts: Record<number, number> = {};
+  for (const e of col.episodes) {
+    episodeCounts[e.season] = Math.max(episodeCounts[e.season] ?? 0, e.no);
+  }
+  const seasons = Math.max(0, ...Object.keys(episodeCounts).map(Number));
+  return { seasons, episodeCounts };
+}
+
+export interface UgcResource {
+  resolution: number;
+  quality: string;
+  url: string;
+  sizeBytes: number;
+  sizeLabel: string;
+  durationSec: number;
+  codec: string;
+  format: string;
+}
+
+export interface UgcEpisode {
+  id: string;
+  season: number;
+  no: number;
+  label: string;
+  title: string;
+  cover: string;
+  durationSec: number;
+  sizeBytes: number;
+  sizeLabel: string;
+  resources: UgcResource[];
+}
+
+export interface UgcCollection {
+  uploader: string;
+  resolutions: number[];
+  episodes: UgcEpisode[];
+  videoNum: number;
+}
+
+/** "S1EP7" / "S2 EP 12" / "EP3" -> { season, episode } */
+function parseEpisodeLabel(label: string): { season: number; episode: number } | null {
+  const se = /s0*(\d+)\s*(?:ep|episode|e|#)\s*0*(\d+)/i.exec(label);
+  if (se) return { season: Number(se[1]), episode: Number(se[2]) };
+  const ep = /(?:ep|episode|e|#)\s*0*(\d+)/i.exec(label);
+  if (ep) return { season: 1, episode: Number(ep[1]) };
+  return null;
+}
+
+function ugcResourceToInfo(res: any): UgcResource | null {
+  const url = typeof res?.url === 'string' ? res.url : '';
+  if (!url || UGC_TRAP.test(url)) return null;
+  const resolution = Number(String(res?.resolutions ?? '').split(',')[0].replace(/\D/g, '')) || 0;
+  const sizeBytes = Number(String(res?.size ?? '').replace(/\D/g, '')) || 0;
+  return {
+    resolution,
+    quality: qualityOf(resolution),
+    url,
+    sizeBytes,
+    sizeLabel: sizeLabel(sizeBytes),
+    durationSec: Number(res?.duration ?? 0) || 0,
+    codec: String(res?.codecName ?? ''),
+    format: String(res?.format ?? 'MP4'),
+  };
+}
+
+/**
+ * The full UGC collection behind a title: uploader, the resolutions it carries
+ * and the per-episode files with their real size and duration. This is what
+ * drives the episode picker and the download sheet.
+ */
+export async function fetchUgcCollection(subjectId: string, season = 0, maxPages = 12): Promise<UgcCollection> {
   const first = await ugcFirst(subjectId);
   const collectionId = first?.belongToCollection?.collectionId;
   const videoNum = Number(first?.belongToCollection?.videoNum ?? 0) || 0;
-  if (!collectionId || !videoNum) return { seasons: 0, episodeCounts: {} };
+  const uploader = String(first?.creator?.nickname ?? '');
+  if (!collectionId) return { uploader, resolutions: [], episodes: [], videoNum };
 
   const perPage = 50;
   const totalPages = Math.max(1, Math.ceil(videoNum / perPage));
-  const episodeCounts: Record<number, number> = {};
+  const episodes: UgcEpisode[] = [];
+  const resolutions = new Set<number>();
 
-  for (let p = 1; p <= Math.min(totalPages, 12); p++) {
+  for (let p = 1; p <= Math.min(totalPages, maxPages); p++) {
     const dl = await client
       .get<any>(
         `/wefeed-mobile-bff/ugc/collection/download-list?collectionId=${collectionId}&page=${p}&perPage=${perPage}`,
@@ -584,17 +668,53 @@ export async function ugcEpisodeCounts(subjectId: string): Promise<{ seasons: nu
       .catch(() => null);
     const items: any[] = dl?.items ?? [];
     if (!items.length) break;
+
     for (const it of items) {
-      const label = `${it?.epTitle ?? ''} ${it?.title ?? ''}`;
-      const m = /s0*(\d+)\s*(?:ep|episode|e|#)0*(\d+)/i.exec(label);
-      const se = m ? Number(m[1]) : 1;
-      const ep = m ? Number(m[2]) : 0;
-      if (ep > 0) episodeCounts[se] = Math.max(episodeCounts[se] ?? 0, ep);
+      const label = String(it?.epTitle ?? '');
+      const parsed = parseEpisodeLabel(label);
+      if (!parsed || !parsed.episode) continue;
+      if (season > 0 && parsed.season !== season) continue;
+
+      const resources = (it?.resources ?? []).map(ugcResourceToInfo).filter(Boolean) as UgcResource[];
+      for (const r of resources) if (r.resolution) resolutions.add(r.resolution);
+      const best = [...resources].sort((a, b) => b.resolution - a.resolution || b.sizeBytes - a.sizeBytes)[0];
+
+      episodes.push({
+        id: String(it?.ugcVideoId ?? `${label}-${p}`),
+        season: parsed.season,
+        no: parsed.episode,
+        label: label || `S${parsed.season}EP${parsed.episode}`,
+        title: String(it?.title ?? ''),
+        cover: String(it?.cover?.url ?? ''),
+        durationSec: resources[0]?.durationSec ?? 0,
+        sizeBytes: best?.sizeBytes ?? 0,
+        sizeLabel: best?.sizeLabel ?? '',
+        resources,
+      });
     }
   }
 
-  const seasons = Math.max(0, ...Object.keys(episodeCounts).map(Number));
-  return { seasons, episodeCounts };
+  episodes.sort((a, b) => a.season - b.season || a.no - b.no);
+  return { uploader, resolutions: [...resolutions].sort((a, b) => b - a), episodes, videoNum };
+}
+
+/** Playable streams for one UGC episode, preferring the requested resolution. */
+export function ugcStreamsFor(ep: UgcEpisode, resolution = 0): Stream[] {
+  const list = [...ep.resources].sort(
+    (a, b) => Math.abs(a.resolution - resolution) - Math.abs(b.resolution - resolution) ||
+      b.resolution - a.resolution ||
+      (/h264|avc/i.test(a.codec) ? 0 : 1) - (/h264|avc/i.test(b.codec) ? 0 : 1),
+  );
+  return list.map((r) => ({
+    id: r.url,
+    url: r.url,
+    resolution: r.resolution,
+    quality: r.quality,
+    sizeBytes: r.sizeBytes,
+    sizeLabel: r.sizeLabel,
+    codec: r.codec,
+    direct: true,
+  }));
 }
 
 /**

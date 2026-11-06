@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { fetchStreams, isAdUrl, type Stream } from '../data/api';
+import { fetchStreams, fetchUgcCollection, isAdUrl, type Stream } from '../data/api';
 import { getTitle } from '../data/cache';
 import { useAsync } from '../lib/useAsync';
 import { useStore } from '../lib/store';
@@ -37,11 +37,23 @@ export default function Player() {
 
   const season = Number(sp.get('se')) || 0;
   const episode = Number(sp.get('ep')) || 0;
+  const requestedRes = Number(sp.get('res')) || 0;
   const title = getTitle(id);
 
   const { data: streams, loading, error, reload } = useAsync(
     () => fetchStreams(id, season, episode),
     [id, season, episode],
+  );
+
+  // Neighbouring episodes, so the player can offer "next episode" without a
+  // round trip back to the detail screen.
+  const { data: ugc } = useAsync(
+    () => (episode ? fetchUgcCollection(id, season) : Promise.resolve(null)),
+    [id, season, episode],
+  );
+  const nextEp = useMemo(
+    () => ugc?.episodes.find((e) => e.no === episode + 1),
+    [ugc, episode],
   );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -77,14 +89,15 @@ export default function Player() {
   // from an older build could still carry one. An ad must never be played.
   const sorted = useMemo(() => {
     const list = (streams ?? []).filter((s) => !isAdUrl(s.url));
-    if (hevcOk === false) {
-      // No HEVC decoder: put H.264 first, keeping the resolution order inside
-      // each codec group.
-      const rank = (s: Stream) => (/h264|avc/i.test(s.codec) ? 0 : 1);
-      return [...list].sort((a, b) => rank(a) - rank(b) || b.resolution - a.resolution);
-    }
-    return list;
-  }, [streams, hevcOk]);
+    const compat = (s: Stream) => (/h264|avc/i.test(s.codec) ? 0 : 1);
+    // The detail screen passes the resolution the user picked; honour it first,
+    // then the device's codec support, then the highest resolution.
+    const rank = (s: Stream) =>
+      (requestedRes > 0 ? Math.abs(s.resolution - requestedRes) : 0) * 1000 +
+      (hevcOk === false ? compat(s) : 0) * 100 -
+      s.resolution / 100;
+    return [...list].sort((a, b) => rank(a) - rank(b));
+  }, [streams, hevcOk, requestedRes]);
   const current: Stream | undefined = sorted[activeIdx] ?? sorted[0];
 
   const streamUrl = current?.url;
@@ -278,6 +291,14 @@ export default function Player() {
                 {subLang !== 'Off' ? ` · ${subLang}` : ' · No subtitles'}
               </div>
             </div>
+            {nextEp && (
+              <button
+                className="player-next"
+                onClick={() => nav(`/player/${id}?se=${season}&ep=${nextEp.no}&res=${requestedRes}`)}
+              >
+                Next <IconSkip size={14} />
+              </button>
+            )}
             <button className="icon-btn" style={{ color: '#fff' }} onClick={() => setSheet('subtitle')} aria-label="Subtitles">
               <IconSubtitle size={20} />
             </button>
@@ -341,8 +362,14 @@ export default function Player() {
                 onClick={() => {
                   const v = videoRef.current;
                   if (!v) return;
-                  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-                  else v.requestFullscreen?.().catch(() => toast('Fullscreen unavailable'));
+                  if (document.fullscreenElement) {
+                    document.exitFullscreen().catch(() => {});
+                    (screen.orientation as any)?.unlock?.();
+                  } else {
+                    v.requestFullscreen?.()
+                      .then(() => (screen.orientation as any)?.lock?.('landscape').catch(() => {}))
+                      .catch(() => toast('Fullscreen unavailable'));
+                  }
                 }}
                 aria-label="Fullscreen"
               >

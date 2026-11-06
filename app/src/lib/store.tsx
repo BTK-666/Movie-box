@@ -168,7 +168,16 @@ interface StoreCtx {
   toast: (msg: string) => void;
   toastMsg: string | null;
   toggleTheme: () => void;
-  startDownload: (titleId: string, opts?: { episode?: number; quality?: Settings['defaultQuality'] }) => void;
+  startDownload: (
+    titleId: string,
+    opts?: {
+      episode?: number;
+      season?: number;
+      quality?: DownloadItem['quality'] | 'Auto';
+      size?: string;
+      label?: string;
+    },
+  ) => void;
   fmt: (n: number) => string;
 }
 
@@ -229,21 +238,41 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const startDownload = useCallback(
-    (titleId: string, opts?: { episode?: number; quality?: Settings['defaultQuality'] }) => {
+    (
+      titleId: string,
+      opts?: {
+        episode?: number;
+        season?: number;
+        quality?: DownloadItem['quality'] | 'Auto';
+        size?: string;
+        label?: string;
+      },
+    ) => {
       const t = getTitle(titleId);
       if (!t) return;
-      const q = (opts?.quality && opts.quality !== 'Auto' ? opts.quality : state.settings.defaultQuality === 'Auto' ? '1080p' : state.settings.defaultQuality) as DownloadItem['quality'];
+      const q = (
+        opts?.quality && opts.quality !== 'Auto'
+          ? opts.quality
+          : state.settings.defaultQuality === 'Auto'
+            ? '1080p'
+            : state.settings.defaultQuality
+      ) as DownloadItem['quality'];
       const sizeGb = q === '4K' ? 3.2 : q === '1080p' ? 1.4 : q === '720p' ? 0.7 : 0.35;
-      const id = `d${Date.now()}`;
+      const id = `d${Date.now()}${opts?.episode ? `-${opts.episode}` : ''}`;
       dispatch({
         type: 'addDownload',
         item: {
           id,
           titleId,
           episode: opts?.episode,
-          label: t.title + (opts?.episode ? ` — E${opts.episode}` : ''),
+          label:
+            opts?.label ??
+            t.title +
+              (opts?.episode
+                ? ` — ${opts.season ? `S${String(opts.season).padStart(2, '0')}` : ''}E${String(opts.episode).padStart(2, '0')}`
+                : ''),
           quality: q,
-          size: sizeGb >= 1 ? `${sizeGb.toFixed(1)} GB` : `${Math.round(sizeGb * 1000)} MB`,
+          size: opts?.size ?? (sizeGb >= 1 ? `${sizeGb.toFixed(1)} GB` : `${Math.round(sizeGb * 1000)} MB`),
           progress: 0,
           status: 'downloading',
           speed: '3.4 MB/s',

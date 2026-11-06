@@ -148,3 +148,25 @@ export const IconLogo = ({ size = 28, className }: P) => (
 export const IconWifiOff = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><path d="M2 2l20 20" /><path d="M8.5 16.4a5 5 0 0 1 7 0" /><path d="M5 12.9a10 10 0 0 1 3.5-2.1" /><path d="M15.5 10.8A10 10 0 0 1 19 12.9" /><path d="M12 20h.01" /></svg>
 );
+
+export const IconInfo = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.5" /><circle cx="12" cy="8" r="0.7" fill="currentColor" stroke="none" /></svg>
+);
+export const IconChevronDown = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="m6 9.5 6 6 6-6" /></svg>
+);
+export const IconEye = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></svg>
+);
+export const IconLock = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><rect x="4.5" y="10.5" width="15" height="9.5" rx="2" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" /></svg>
+);
+export const IconSquare = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><rect x="4" y="4" width="16" height="16" rx="4" /></svg>
+);
+export const IconCheckSquare = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><rect x="4" y="4" width="16" height="16" rx="4" /><path d="m8.5 12.2 2.6 2.6 4.6-5" /></svg>
+);
+export const IconCloudDownload = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M7 16.5a4 4 0 0 1-.4-8 5.2 5.2 0 0 1 10 1.2A3.6 3.6 0 0 1 16.6 16" /><path d="M12 11.5v7" /><path d="m9.2 15.8 2.8 2.8 2.8-2.8" /></svg>
+);

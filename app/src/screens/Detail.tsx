@@ -1,9 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { fetchDetails, episodesOf, type MediaDetails } from '../data/api';
-import { getTitle, getDetails, rememberDetails, rememberTitle } from '../data/cache';
-import { useCachedAsync } from '../lib/useAsync';
-import { backdropImage, posterImage, optimizeImage } from '../lib/img';
+import {
+  fetchDetails,
+  fetchUgcCollection,
+  fetchTrending,
+  type MediaDetails,
+  type UgcEpisode,
+} from '../data/api';
+import { getDetails, rememberDetails, rememberTitle } from '../data/cache';
+import { useCachedAsync, useAsync } from '../lib/useAsync';
+import { backdropImage, optimizeImage } from '../lib/img';
 import { useStore } from '../lib/store';
 import {
   IconBack,
@@ -14,23 +20,29 @@ import {
   IconStar,
   IconShare,
   IconCast,
-  IconMore,
-  IconSubtitle,
+  IconEye,
+  IconInfo,
+  IconChevronDown,
 } from '../components/Icons';
-import { Sheet, SheetOption, Confirm, Loading, ErrorState, Rail } from '../components/ui';
+import { Sheet, SheetOption, Loading, ErrorState, Rail } from '../components/ui';
+import DownloadSheet from '../components/DownloadSheet';
+import type { Title } from '../data/catalog';
 
 export default function Detail() {
   const { id = '' } = useParams();
   const [sp] = useSearchParams();
   const nav = useNavigate();
-  const { isFavorite, dispatch, toast, startDownload, state } = useStore();
+  const { isFavorite, dispatch, toast, startDownload } = useStore();
 
-  const [sheet, setSheet] = useState<null | 'quality' | 'subtitle'>(null);
-  const [confirmDl, setConfirmDl] = useState(false);
+  const [sheet, setSheet] = useState<null | 'quality' | 'subtitle' | 'download' | 'info' | 'season' | 'lang'>(
+    null,
+  );
   const [quality, setQuality] = useState('1080p');
   const [subLang, setSubLang] = useState('Off');
   const [expanded, setExpanded] = useState(false);
   const [season, setSeason] = useState(Number(sp.get('se')) || 1);
+  const [dub, setDub] = useState(0);
+  const [resolution, setResolution] = useState(0);
 
   const cached = getDetails(id);
   const { data, loading, error, reload } = useCachedAsync(`detail:${id}`, () => fetchDetails(id), [id], 10 * 60 * 1000);
@@ -43,7 +55,60 @@ export default function Detail() {
   }, [data]);
 
   const t: MediaDetails | undefined = data ?? cached;
-  const eps = useMemo(() => (t && t.seasons > 0 ? episodesOf(t, season) : []), [t, season]);
+  const isSeries = !!t && t.seasons > 0;
+
+  // Real per-episode files, sizes and durations live in the UGC collection.
+  const { data: ugc } = useAsync(
+    () => (isSeries ? fetchUgcCollection(id, season) : Promise.resolve(null)),
+    [id, season, isSeries],
+  );
+
+  const episodes: UgcEpisode[] = useMemo(() => ugc?.episodes ?? [], [ugc]);
+  const seasons = useMemo(() => {
+    const n = t?.seasons ?? 0;
+    return Array.from({ length: n }, (_, i) => i + 1);
+  }, [t?.seasons]);
+
+  const resolutions = useMemo(() => {
+    const fromEps = new Set<number>();
+    for (const e of episodes) for (const r of e.resources) if (r.resolution) fromEps.add(r.resolution);
+    const list = [...fromEps].sort((a, b) => b - a);
+    return list.length ? list : [1080, 720, 480, 360];
+  }, [episodes]);
+
+  // Track the picker until the user touches it, so a late-arriving episode list
+  // can raise the default to the highest resolution actually on offer.
+  const [resPinned, setResPinned] = useState(false);
+  useEffect(() => {
+    if (resPinned) return;
+    if (resolution === 0 || !resolutions.includes(resolution)) setResolution(resolutions[0]);
+  }, [resolutions, resolution, resPinned]);
+
+  // "For you" rail: mainstream titles that are not the current one.
+  const { data: related } = useAsync<Title[]>(
+    () => fetchTrending(),
+    [id],
+  );
+  const forYou = useMemo(() => {
+    const seen = new Set<string>();
+    return (related ?? [])
+      .filter((x) => {
+        if (x.id === id || !x.poster || seen.has(x.title)) return false;
+        seen.add(x.title);
+        return true;
+      })
+      .slice(0, 12);
+  }, [related, id]);
+
+  const cast = useMemo(() => {
+    const seen = new Set<string>();
+    return (t?.cast ?? []).filter((c) => {
+      const k = c.name.trim().toLowerCase();
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [t?.cast]);
 
   if (loading && !t) {
     return (
@@ -76,15 +141,26 @@ export default function Detail() {
   }
 
   const fav = isFavorite(t.id);
-  const inHistory = state.history.find((h) => h.titleId === t.id);
-  const resume = inHistory?.progress ?? 0;
-  const isSeries = t.seasons > 0;
+  const playUrl = isSeries
+    ? `/player/${t.id}?se=${season}&ep=1&res=${resolution}`
+    : `/player/${t.id}?res=${resolution}`;
 
-  const playUrl = isSeries ? `/player/${t.id}?se=${season}&ep=1` : `/player/${t.id}`;
+  const playEpisode = (ep: UgcEpisode) =>
+    nav(`/player/${t.id}?se=${ep.season}&ep=${ep.no}&res=${resolution}`);
 
-  const doDownload = () => {
-    startDownload(t.id, { quality: quality as any });
-    setConfirmDl(false);
+  const doDownload = (list: UgcEpisode[], res: number) => {
+    for (const ep of list) {
+      const r = ep.resources.find((x) => x.resolution === res) ?? ep.resources[0];
+      startDownload(t.id, {
+        episode: ep.no,
+        season: ep.season,
+        quality: res >= 2160 ? '4K' : (`${res}p` as '1080p' | '720p' | '480p'),
+        size: r?.sizeLabel,
+        label: `${t.title} — S${String(ep.season).padStart(2, '0')}E${String(ep.no).padStart(2, '0')}`,
+      });
+    }
+    setSheet(null);
+    toast(list.length > 1 ? `${list.length} episodes queued` : 'Download started');
   };
 
   return (
@@ -105,7 +181,13 @@ export default function Detail() {
         </div>
 
         <div className="detail-body fade-in">
-          <div className="detail-title">{t.title}</div>
+          <div className="detail-title-row">
+            <div className="detail-title">{t.title}</div>
+            <button className="info-btn" onClick={() => setSheet('info')}>
+              Info <IconInfo size={13} />
+            </button>
+          </div>
+
           <div className="detail-meta">
             {t.rating > 0 && (
               <span className="rating-pill">
@@ -113,13 +195,13 @@ export default function Detail() {
               </span>
             )}
             {t.year > 0 && <span>{t.year}</span>}
-            {t.duration && <span>{t.duration}</span>}
+            {t.country && <span>{t.country}</span>}
+            <span>{isSeries ? 'Series' : 'Movie'}</span>
             {isSeries && (
               <span className="pill">
-                {t.seasons} Season{t.seasons > 1 ? 's' : ''}
+                {t.seasons} season{t.seasons > 1 ? 's' : ''}
               </span>
             )}
-            <span className="pill">{isSeries ? 'Series' : 'Movie'}</span>
           </div>
 
           {t.genres.length > 0 && (
@@ -131,6 +213,33 @@ export default function Detail() {
               ))}
             </div>
           )}
+
+          <div className="detail-actions">
+            <button className="btn btn-primary" onClick={() => nav(playUrl)}>
+              <IconPlay size={17} /> Play
+            </button>
+          </div>
+
+          <div className="detail-icon-actions">
+            <button
+              className={`act ${fav ? 'active' : ''}`}
+              onClick={() => {
+                dispatch({ type: 'toggleFav', id: t.id });
+                toast(fav ? 'Removed from My List' : 'Added to My List');
+              }}
+            >
+              {fav ? <IconCheck size={19} /> : <IconHeart size={19} />} My List
+            </button>
+            <button className="act" onClick={() => toast('Link copied')}>
+              <IconShare size={19} /> Share
+            </button>
+            <button className="act" onClick={() => setSheet('download')}>
+              <IconDownload size={19} /> Download
+            </button>
+            <button className="act" onClick={() => setSheet('quality')}>
+              <IconEye size={19} /> View
+            </button>
+          </div>
 
           {t.synopsis && (
             <>
@@ -149,93 +258,63 @@ export default function Detail() {
             </>
           )}
 
-          <div className="detail-actions">
-            <button className="btn btn-primary" onClick={() => nav(playUrl)}>
-              <IconPlay size={17} /> {resume > 0 ? `Resume ${Math.round(resume * 100)}%` : 'Play'}
-            </button>
-            <button className="btn btn-ghost" onClick={() => setConfirmDl(true)}>
-              <IconDownload size={17} /> Download
-            </button>
+          <div className="detail-resource-line">
+            {ugc?.uploader ? `Resources Uploaded by ${ugc.uploader}` : 'Resources'}
           </div>
 
-          <div className="detail-icon-actions">
-            <button
-              className={`act ${fav ? 'active' : ''}`}
-              onClick={() => {
-                dispatch({ type: 'toggleFav', id: t.id });
-                toast(fav ? 'Removed from My List' : 'Added to My List');
-              }}
-            >
-              {fav ? <IconCheck size={19} /> : <IconHeart size={19} />} My List
-            </button>
-            <button className="act" onClick={() => setSheet('quality')}>
-              <IconSubtitle size={19} /> Quality
-            </button>
-            <button className="act" onClick={() => setSheet('subtitle')}>
-              <IconSubtitle size={19} /> Subtitles
-            </button>
-            <button className="act" onClick={() => toast('Reported')}>
-              <IconMore size={19} /> More
-            </button>
+          <div className="detail-selects">
+            {t.dubs.length > 0 && (
+              <button className="chip select-chip" onClick={() => setSheet('lang')}>
+                {t.dubs[dub]?.label || t.dubs[dub]?.language || 'Original Audio'} <IconChevronDown size={13} />
+              </button>
+            )}
+            {isSeries && seasons.length > 0 && (
+              <button className="chip select-chip" onClick={() => setSheet('season')}>
+                Season {String(season).padStart(2, '0')} <IconChevronDown size={13} />
+              </button>
+            )}
           </div>
 
           {isSeries && (
             <>
-              <div className="ep-head">
-                <h3>Episodes</h3>
+              <div className="season-row">
+                {seasons.map((s) => (
+                  <button
+                    key={s}
+                    className={`chip ${season === s ? 'active' : ''}`}
+                    onClick={() => setSeason(s)}
+                  >
+                    Season {s}
+                  </button>
+                ))}
               </div>
 
-              {t.seasons > 1 && (
-                <div className="season-row">
-                  {Array.from({ length: t.seasons }, (_, i) => i + 1).map((s) => (
-                    <button
-                      key={s}
-                      className={`chip ${season === s ? 'active' : ''}`}
-                      onClick={() => setSeason(s)}
-                    >
-                      Season {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="ep-grid">
-                {eps.map((e) => {
-                  const isCurrent = inHistory?.episode === e.no;
-                  return (
-                    <button
-                      key={e.id}
-                      className={`ep-card ${isCurrent ? 'on' : ''}`}
-                      onClick={() => nav(`/player/${t.id}?se=${season}&ep=${e.no}`)}
-                    >
-                      <div className="ep-thumb" style={{ backgroundImage: `url(${optimizeImage(e.thumb, 320)})` }} />
-                      <div className="ep-meta">
-                        <div className="ep-no">Episode {e.no}</div>
-                        <div className="ep-dur">
-                          {e.duration}
-                          {isCurrent && resume > 0 ? ` · ${Math.round(resume * 100)}%` : ''}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
+              <div className="ep-chips">
+                <button className="ep-chip all" onClick={() => setSheet('download')}>
+                  All
+                </button>
+                {episodes.slice(0, 24).map((ep) => (
+                  <button key={ep.id} className="ep-chip" onClick={() => playEpisode(ep)}>
+                    {String(ep.no).padStart(2, '0')}
+                  </button>
+                ))}
               </div>
-
-              {eps.length === 0 && (
-                <div style={{ padding: '0 16px 12px', color: 'var(--text-3)', fontSize: 13 }}>
-                  No episodes listed for this season.
-                </div>
-              )}
             </>
           )}
 
-          {t.cast.length > 0 && (
+          {forYou.length > 0 && (
+            <div className="detail-for-you">
+              <Rail title="For you" items={forYou} />
+            </div>
+          )}
+
+          {cast.length > 0 && (
             <>
               <div className="ep-head">
                 <h3>Cast</h3>
               </div>
               <div className="cast-row">
-                {t.cast.map((c, i) => (
+                {cast.map((c, i) => (
                   <div key={`${c.id}-${i}`} className="cast">
                     <div className="cast-img" style={{ backgroundImage: `url(${optimizeImage(c.avatar, 160)})` }} />
                     <span className="cast-name">{c.name}</span>
@@ -248,6 +327,25 @@ export default function Detail() {
 
         <div style={{ height: 28 }} />
       </div>
+
+      {sheet === 'download' && (
+        <DownloadSheet
+          title={t.title}
+          uploader={ugc?.uploader}
+          seasons={seasons}
+          season={season}
+          onSeason={setSeason}
+          dubs={t.dubs}
+          dub={dub}
+          onDub={setDub}
+          episodes={episodes}
+          resolutions={resolutions}
+          resolution={resolution}
+          onResolution={(r) => { setResPinned(true); setResolution(r); }}
+          onClose={() => setSheet(null)}
+          onDownload={doDownload}
+        />
+      )}
 
       {sheet === 'quality' && (
         <Sheet title="Stream Quality" onClose={() => setSheet(null)}>
@@ -285,14 +383,83 @@ export default function Detail() {
         </Sheet>
       )}
 
-      {confirmDl && (
-        <Confirm
-          title="Download"
-          message={`Download "${t.title}" in ${quality}? ${isSeries ? 'Episodes will be queued.' : ''}`}
-          confirmLabel="Download"
-          onConfirm={doDownload}
-          onCancel={() => setConfirmDl(false)}
-        />
+      {sheet === 'season' && (
+        <Sheet title="Select Season" onClose={() => setSheet(null)}>
+          {seasons.map((s) => (
+            <SheetOption
+              key={s}
+              active={season === s}
+              onClick={() => {
+                setSeason(s);
+                setSheet(null);
+              }}
+            >
+              Season {String(s).padStart(2, '0')}
+            </SheetOption>
+          ))}
+        </Sheet>
+      )}
+
+      {sheet === 'lang' && (
+        <Sheet title="Select Language" onClose={() => setSheet(null)}>
+          {t.dubs.map((d, i) => (
+            <SheetOption
+              key={`${d.subjectId}-${i}`}
+              active={dub === i}
+              onClick={() => {
+                setDub(i);
+                setSheet(null);
+              }}
+            >
+              {d.label || d.language || 'Original Audio'}
+            </SheetOption>
+          ))}
+        </Sheet>
+      )}
+
+      {sheet === 'info' && (
+        <Sheet title="Info" onClose={() => setSheet(null)}>
+          <div className="sheet-info">
+            <div className="sheet-info-row">
+              <span>Type</span>
+              <b>{isSeries ? `Series · ${t.seasons} season${t.seasons > 1 ? 's' : ''}` : 'Movie'}</b>
+            </div>
+            {t.year > 0 && (
+              <div className="sheet-info-row">
+                <span>Year</span>
+                <b>{t.year}</b>
+              </div>
+            )}
+            {t.country && (
+              <div className="sheet-info-row">
+                <span>Country</span>
+                <b>{t.country}</b>
+              </div>
+            )}
+            {t.duration && (
+              <div className="sheet-info-row">
+                <span>Duration</span>
+                <b>{t.duration}</b>
+              </div>
+            )}
+            {t.genres.length > 0 && (
+              <div className="sheet-info-row">
+                <span>Genres</span>
+                <b>{t.genres.join(', ')}</b>
+              </div>
+            )}
+            {ugc?.uploader && (
+              <div className="sheet-info-row">
+                <span>Uploaded by</span>
+                <b>{ugc.uploader}</b>
+              </div>
+            )}
+            <div className="sheet-info-row">
+              <span>Audio</span>
+              <b>{t.dubs.length ? t.dubs.map((d) => d.label || d.language).join(', ') : 'Original'}</b>
+            </div>
+          </div>
+        </Sheet>
       )}
     </>
   );
