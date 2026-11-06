@@ -39,3 +39,8 @@
   display: grid; place-items: center; font-style: normal;
   border: 1.5px solid var(--bg);
 }
+
+/* Bouncy nav feedback */
+.nav-item { transition: color var(--dur-mid) var(--ease-out), transform var(--dur-mid) var(--spring); }
+.nav-item:active { transform: scale(0.88); }
+.nav-item.active .nav-icon { animation: pop-in var(--dur-mid) var(--spring) both; }

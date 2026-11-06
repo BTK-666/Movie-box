@@ -227,3 +227,18 @@
 .ep-card .ep-meta { padding: 6px 8px; }
 .ep-card .ep-no { font-size: 12px; font-weight: 600; color: var(--text); }
 .ep-card .ep-dur { font-size: 11px; color: var(--text-3); }
+
+/* ============ Bouncy micro-interactions ============ */
+.poster-card {
+  transition: transform var(--dur-mid) var(--spring);
+}
+.poster-card:active { transform: scale(0.94); }
+.poster-card:active .poster-art { transform: scale(0.98); }
+.poster-card:active .poster-play { opacity: 1; transform: scale(1.08); }
+.poster-play { transition: opacity var(--dur-mid) var(--ease-out), transform var(--dur-mid) var(--spring); }
+
+.rail-scroll { scroll-behavior: smooth; }
+.rail { animation: rise-in var(--dur-slow) var(--ease-out) both; }
+
+.section-more { transition: transform var(--dur-fast) var(--spring), color var(--dur-fast) var(--ease-out); }
+.section-more:active { transform: scale(0.9); color: var(--text); }

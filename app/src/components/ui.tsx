@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Title } from '../data/catalog';
 import { posterImage, backdropImage } from '../lib/img';
+import { LazyArt } from '../lib/lazy';
 import { IconStar, IconPlay, IconChevronRight, IconClose, IconWifiOff } from './Icons';
 
 /* ---------- Poster card ---------- */
@@ -34,7 +35,7 @@ export function PosterCard({
       onClick={() => nav(`/detail/${t.id}`)}
       aria-label={t.title}
     >
-      <div className="poster-art" style={{ backgroundImage: `url(${poster})` }}>
+      <LazyArt className="poster-art" src={poster}>
         {t.quality && <span className="poster-badge">{t.quality}</span>}
         {t.newRelease && !showRank && <span className="poster-new">NEW</span>}
         {showRank && (
@@ -50,7 +51,7 @@ export function PosterCard({
         <span className="poster-play">
           <IconPlay size={18} />
         </span>
-      </div>
+      </LazyArt>
       <div className="poster-meta">
         <span className="poster-title ellipsis">{t.title}</span>
         <span className="poster-sub ellipsis">

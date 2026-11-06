@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchShorts, type ShortItem } from '../data/api';
 import { optimizeImage } from '../lib/img';
 import { useAsync } from '../lib/useAsync';
@@ -17,6 +17,7 @@ import {
 
 export default function ShortTV() {
   const nav = useNavigate();
+  const [sp] = useSearchParams();
   const { toast } = useStore();
   const [idx, setIdx] = useState(0);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
@@ -25,9 +26,38 @@ export default function ShortTV() {
   const startY = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
+  const [page, setPage] = useState(1);
+  const [extra, setExtra] = useState<ShortItem[]>([]);
   const { data, loading, error, reload } = useAsync(() => fetchShorts(1, 20), []);
-  const list: ShortItem[] = data ?? [];
+  const list: ShortItem[] = useMemo(() => [...(data ?? []), ...extra], [data, extra]);
   const s = list[idx];
+
+  // Deep link from the home rail: `/shorts?i=<index>`.
+  const start = Number(sp.get('i'));
+  useEffect(() => {
+    if (Number.isFinite(start) && start > 0) setIdx(start);
+  }, [start]);
+
+  // Fetch the next page a little before the end so the feed never stalls.
+  useEffect(() => {
+    if (!list.length) return;
+    if (idx < list.length - 3) return;
+    let cancelled = false;
+    const next = page + 1;
+    fetchShorts(next, 20)
+      .then((more) => {
+        if (cancelled || !more.length) return;
+        setExtra((prev) => {
+          const seen = new Set([...(data ?? []), ...prev].map((x) => x.id));
+          return [...prev, ...more.filter((m) => !seen.has(m.id))];
+        });
+        setPage(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [idx, list.length, page, data]);
 
   const go = useCallback(
     (dir: number) => {
@@ -117,6 +147,10 @@ export default function ShortTV() {
           onClick={togglePlay}
           onPlay={() => setPaused(false)}
           onPause={() => setPaused(true)}
+          onError={() => {
+            // A dead short should not trap the user on a black screen.
+            if (idx < list.length - 1) setIdx((i) => i + 1);
+          }}
         />
 
         {paused && (

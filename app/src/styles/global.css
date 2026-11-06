@@ -146,3 +146,18 @@ img { display: block; }
   box-shadow: var(--sh-2); animation: fadeIn 200ms var(--ease) both;
   border: 1px solid var(--line);
 }
+
+/* ============ Bouncy micro-interactions ============ */
+.btn { transition: transform var(--dur-mid) var(--spring), filter var(--dur-mid) var(--ease-out); }
+.btn:active { transform: scale(0.93); }
+.btn-primary:active { filter: brightness(1.08); }
+
+.chip { transition: transform var(--dur-mid) var(--spring), background var(--dur-mid) var(--ease-out), color var(--dur-mid) var(--ease-out); }
+.chip:active { transform: scale(0.92); }
+.chip.active { animation: pop-in var(--dur-mid) var(--spring) both; }
+
+.sheet { animation: spring-up var(--dur-slow) var(--spring) both; }
+.sheet-item { transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--spring); }
+.sheet-item:active { background: var(--surface-2); transform: scale(0.985); }
+
+.scrim { animation: fadeIn var(--dur-mid) var(--ease-out) both; }

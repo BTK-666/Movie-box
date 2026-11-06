@@ -10,16 +10,8 @@ import {
   IconPause,
   IconSkip,
   IconSkipBack,
-  IconVolume,
-  IconMute,
-  IconFullscreen,
-  IconSubtitle,
-  IconSettings,
-  IconCast,
-  IconLock,
-  IconUnlock,
-  IconGlobe,
-  IconFit,
+  IconQuality,
+  IconExpand,
 } from './Icons';
 import { Sheet, SheetOption } from './ui';
 
@@ -85,16 +77,11 @@ export default function VideoPlayer({
   const [playing, setPlaying] = useState(false);
   const [pos, setPos] = useState(0);
   const [total, setTotal] = useState(0);
-  const [muted, setMuted] = useState(false);
   const [controls, setControls] = useState(true);
-  const [locked, setLocked] = useState(false);
   const [fullscreen, setFullscreen] = useState(variant === 'full');
-  const [sheet, setSheet] = useState<null | 'quality' | 'speed' | 'subtitle'>(null);
-  const [speed, setSpeed] = useState('1x');
-  const [subLang, setSubLang] = useState('Off');
+  const [sheet, setSheet] = useState<null | 'quality'>(null);
   const [failed, setFailed] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
-  const [fit, setFit] = useState<'contain' | 'cover'>('contain');
   const triedRef = useRef<Set<string>>(new Set());
   const [hevcOk, setHevcOk] = useState<boolean | null>(null);
 
@@ -188,21 +175,14 @@ export default function VideoPlayer({
   }, [streamUrl, autoPlay]);
 
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const rate = Number.parseFloat(speed);
-    v.playbackRate = Number.isFinite(rate) ? rate : 1;
-  }, [speed, streamUrl]);
-
-  useEffect(() => {
-    if (controls && playing && !locked) {
+    if (controls && playing) {
       if (hideTimer.current) window.clearTimeout(hideTimer.current);
       hideTimer.current = window.setTimeout(() => setControls(false), 3500);
     }
     return () => {
       if (hideTimer.current) window.clearTimeout(hideTimer.current);
     };
-  }, [controls, playing, locked]);
+  }, [controls, playing]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -292,29 +272,17 @@ export default function VideoPlayer({
       <div
         ref={stageRef}
         className="vp-stage"
-        onClick={() => {
-          if (locked) return;
-          setControls((c) => !c);
-        }}
+        onClick={() => setControls((c) => !c)}
       >
         <video
           ref={videoRef}
           className="vp-el"
-          style={{ objectFit: fit }}
           src={streamUrl}
           poster={title.backdrop}
           playsInline
-          muted={muted}
           preload="metadata"
           onLoadedMetadata={(e) => setTotal(e.currentTarget.duration || 0)}
-          onTimeUpdate={(e) => {
-            const t = e.currentTarget.currentTime;
-            setPos(t);
-            if (historyRef.current.id === title.id) {
-              const d = e.currentTarget.duration || 0;
-              historyRef.current.progress = d > 0 ? t / d : 0;
-            }
-          }}
+          onTimeUpdate={(e) => setPos(e.currentTarget.currentTime)}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onError={onSourceError}
@@ -347,7 +315,7 @@ export default function VideoPlayer({
         )}
 
         <div
-          className={`vp-controls ${controls && !locked ? '' : 'hidden'}`}
+          className={`vp-controls ${controls ? '' : 'hidden'}`}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="vp-top">
@@ -357,10 +325,7 @@ export default function VideoPlayer({
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="vp-title ellipsis">{label}</div>
               <div className="vp-sub ellipsis">
-                {current
-                  ? `${current.quality}${current.sizeLabel ? ` · ${current.sizeLabel}` : ''} · ${speed}`
-                  : '—'}
-                {subLang !== 'Off' ? ` · ${subLang}` : ' · No subtitles'}
+                {current ? `${current.quality}${current.sizeLabel ? ` · ${current.sizeLabel}` : ''}` : '—'}
               </div>
             </div>
             {onNext && nextEp && (
@@ -368,14 +333,6 @@ export default function VideoPlayer({
                 Next <IconSkip size={14} />
               </button>
             )}
-            <button
-              className="icon-btn"
-              style={{ color: '#fff' }}
-              onClick={() => setSheet('subtitle')}
-              aria-label="Subtitles"
-            >
-              <IconSubtitle size={20} />
-            </button>
           </div>
 
           <div className="vp-center">
@@ -406,60 +363,21 @@ export default function VideoPlayer({
               <span>{fmt(total)}</span>
             </div>
             <div className="vp-tools">
-              <button className="pt" onClick={() => setSheet('quality')}>
-                {current?.quality ?? 'Auto'}
-              </button>
-              <button className="pt" onClick={() => setSheet('speed')}>
-                {speed}
-              </button>
-              <button
-                className="pt"
-                onClick={() => setFit((f) => (f === 'contain' ? 'cover' : 'contain'))}
-                aria-label="Fit"
-              >
-                <IconFit size={16} /> Fit
-              </button>
-              <button className="pt" onClick={() => setSheet('subtitle')} aria-label="Language">
-                <IconGlobe size={16} /> Language
-              </button>
-              <button
-                className="pt"
-                onClick={() => {
-                  const v = videoRef.current;
-                  const next = !muted;
-                  setMuted(next);
-                  if (v) v.muted = next;
-                }}
-                aria-label="Mute"
-              >
-                {muted ? <IconMute size={17} /> : <IconVolume size={17} />}
+              <button className="pt" onClick={() => setSheet('quality')} aria-label="Quality">
+                <IconQuality size={16} /> {current?.quality ?? 'Auto'}
               </button>
               <span className="spacer" />
-              <button className="pt" onClick={() => toast('Casting…')} aria-label="Cast">
-                <IconCast size={17} />
-              </button>
-              <button className="pt" onClick={() => setSheet('quality')} aria-label="Settings">
-                <IconSettings size={17} />
-              </button>
               <button
                 className="pt"
                 onClick={() => (fullscreen ? void exitFullscreen() : void enterFullscreen())}
                 aria-label="Fullscreen"
               >
-                <IconFullscreen size={17} />
+                <IconExpand size={17} /> Fullscreen
               </button>
             </div>
           </div>
         </div>
 
-        {controls && (
-          <div className="vp-lock">
-            <button onClick={() => setLocked((l) => !l)} aria-label="Lock">
-              {locked ? <IconLock size={20} /> : <IconUnlock size={20} />}
-            </button>
-            {!locked && <span className="vp-lock-hint">Tap to Lock</span>}
-          </div>
-        )}
       </div>
 
       {sheet === 'quality' && (
@@ -479,39 +397,6 @@ export default function VideoPlayer({
               {s.quality}
               {s.sizeLabel ? ` · ${s.sizeLabel}` : ''}
               {s.codec ? ` · ${s.codec}` : ''}
-            </SheetOption>
-          ))}
-        </Sheet>
-      )}
-      {sheet === 'speed' && (
-        <Sheet title="Playback Speed" onClose={() => setSheet(null)}>
-          {['0.5x', '0.75x', '1x', '1.25x', '1.5x', '2x'].map((s) => (
-            <SheetOption
-              key={s}
-              active={speed === s}
-              onClick={() => {
-                setSpeed(s);
-                setSheet(null);
-                toast(`Speed: ${s}`);
-              }}
-            >
-              {s}
-            </SheetOption>
-          ))}
-        </Sheet>
-      )}
-      {sheet === 'subtitle' && (
-        <Sheet title="Subtitles" onClose={() => setSheet(null)}>
-          {['Off', 'English', 'हिन्दी', 'বাংলা', 'Español', 'العربية'].map((s) => (
-            <SheetOption
-              key={s}
-              active={subLang === s}
-              onClick={() => {
-                setSubLang(s);
-                setSheet(null);
-              }}
-            >
-              {s}
             </SheetOption>
           ))}
         </Sheet>

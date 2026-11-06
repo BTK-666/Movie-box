@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchHome } from '../data/api';
+import { fetchHome, fetchShorts, type ShortItem } from '../data/api';
 import type { Rail as RailData } from '../data/catalog';
 import { rememberTitles, getTitle } from '../data/cache';
-import { backdropImage } from '../lib/img';
+import { backdropImage, optimizeImage } from '../lib/img';
 import { useCachedAsync } from '../lib/useAsync';
 import { useStore } from '../lib/store';
 import { Rail, PosterCard, SectionHead, Loading, ErrorState } from '../components/ui';
@@ -17,6 +17,7 @@ import {
   IconCheck,
   IconStar,
   IconFire,
+  IconChevronRight,
 } from '../components/Icons';
 
 /**
@@ -38,6 +39,51 @@ const CATEGORIES: { id: string; name: string; tabId: string }[] = [
 const RAIL_SUBS: Record<string, string[]> = {
   movie: ['Bollywood', 'South Indian', 'Hollywood', 'New'],
   tv: ['Indian Drama', 'Reality-TV', 'Anime', 'Asian Drama', 'Western'],
+};
+
+/**
+ * "Hot Short TV" rail — the vertical short-drama feed the official client
+ * surfaces on the home page. Cards open the immersive shorts player.
+ */
+function HotShortsRail({ onOpen }: { onOpen: (index: number) => void }) {
+  const { data } = useCachedAsync('home:shorts', () => fetchShorts(1, 12), []);
+  const items: ShortItem[] = data ?? [];
+  if (!items.length) return null;
+  return (
+    <section className="rail">
+      <div className="section-head">
+        <h3>
+          <IconFire size={15} /> Hot Short TV
+        </h3>
+        <button className="section-more" onClick={() => onOpen(0)}>
+          Watch all <IconChevronRight size={15} />
+        </button>
+      </div>
+      <div className="rail-scroll">
+        {items.map((s, i) => (
+          <button key={s.id} className="short-card" onClick={() => onOpen(i)} aria-label={s.title}>
+            <span
+              className="short-card-art"
+              style={{ backgroundImage: `url(${optimizeImage(s.cover, 220)})` }}
+            >
+              <span className="short-card-play">
+                <IconPlay size={16} />
+              </span>
+              {s.duration > 0 && <span className="short-card-dur">{fmtShort(s.duration)}</span>}
+            </span>
+            <span className="short-card-title clamp2">{s.title || s.groupName || 'Short'}</span>
+            <span className="short-card-sub ellipsis">{s.author || 'Short Drama'}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const fmtShort = (sec: number) => {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
 export default function Home() {
@@ -226,6 +272,10 @@ export default function Home() {
               ))}
             </div>
           </section>
+        )}
+
+        {cat === 'trending' && !rails.some((r) => /hot\s*short/i.test(r.title)) && (
+          <HotShortsRail onOpen={(i) => nav(`/shorts?i=${i}`)} />
         )}
 
         {rails.map((r) => {

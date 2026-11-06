@@ -409,23 +409,30 @@ ok(true, 'Resolution chip switches without error');
 await pg.locator('.dl-sheet-head .icon-btn').click();
 await pg.waitForTimeout(400);
 
-// Player Fit / Language / Tap to Lock
+// Player is intentionally minimal: Fullscreen + Quality + Next only.
 const did = (pg.url().match(/\/detail\/(\d+)/) ?? [])[1];
 await pg.goto(`${B}/#/detail/${did}?play=1`, { waitUntil: 'domcontentloaded' });
 ok(await ready('.vp-inline', 20000), 'Inline player starts');
 await pg.locator('.vp-stage').click({ position: { x: 5, y: 5 } });
 await pg.waitForTimeout(400);
-const tools = await pg.locator('.vp-tools .pt').allTextContents();
-ok(tools.some((t) => /fit/i.test(t)), 'Player exposes a Fit control');
-ok(tools.some((t) => /language/i.test(t)), 'Player exposes a Language control');
-ok(/tap to lock/i.test(await pg.locator('.vp-lock').innerText()), 'Player shows the Tap to Lock hint');
-const fitBefore = await pg.locator('.vp-el').getAttribute('style');
-await pg.locator('.vp-tools .pt:has-text("Fit")').click();
-await pg.waitForTimeout(300);
-const fitAfter = await pg.locator('.vp-el').getAttribute('style');
-ok(fitBefore !== fitAfter, 'Fit toggles the video object-fit (' + fitBefore + ' -> ' + fitAfter + ')');
+const tools = (await pg.locator('.vp-tools .pt').allTextContents()).map((t) => t.trim());
+ok(tools.some((t) => /fullscreen/i.test(t)), 'Player exposes a Fullscreen control');
+ok(tools.some((t) => /(1080p|720p|480p|auto)/i.test(t)), 'Player exposes a Quality control');
+ok(tools.length <= 2, 'Player controls are limited to Quality + Fullscreen (' + tools.join(', ') + ')');
+ok((await pg.locator('.vp-lock').count()) === 0, 'Player no longer shows a lock control');
+ok((await pg.locator('.vp-tools .pt:has-text("Fit")').count()) === 0, 'Player no longer shows a Fit control');
+ok((await pg.locator('.vp-tools .pt:has-text("Language")').count()) === 0, 'Player no longer shows a Language control');
 const scrub = (await pg.locator('.vp-scrub').innerText()).trim();
 ok(/^\d+:\d{2}\d+:\d{2}$/.test(scrub.replace(/\s+/g, '')), 'Scrubber shows current/total time (' + scrub.replace(/\s+/g, ' ') + ')');
+// Quality sheet still opens. In this desktop Chromium the CDN answers 428 for
+// a browser User-Agent, so the list may legitimately be empty — what matters is
+// that the sheet opens and reports either sources or an honest empty state.
+await pg.locator('.vp-tools .pt').first().click();
+await pg.waitForTimeout(500);
+const sheetOpen = (await pg.locator('.sheet').count()) > 0;
+const hasItems = (await pg.locator('.sheet-item').count()) > 0;
+const hasEmpty = (await pg.locator('.sheet-empty').count()) > 0;
+ok(sheetOpen && (hasItems || hasEmpty), 'Quality sheet opens with sources or an empty state');
 
 console.log(`\n=== RESULT: ${pass} passed, ${fail} failed ===`);
 console.log('=== ERRORS (' + errs.length + ') ===');

@@ -229,3 +229,38 @@ reference screen recording the user supplied:
   beside the lock icon.
 
 The parity assertions live at the end of `tests/ui.spec.mjs` (suite #20).
+
+## CDN access, playback tiers and the minimal player
+
+**The CDN is User-Agent gated.** `bcdn.hakunaymatata.com` answers:
+
+| User-Agent | Response |
+| :--- | :--- |
+| `ExoPlayerLib/*`, `okhttp/*`, `VLC`, `curl`, the Capacitor UA | `206` (plays) |
+| any Chromium `Mozilla/5.0 … Chrome/…` | `428` (blocked) |
+
+So a stream that "fails" in a desktop browser usually plays fine on device.
+`npm run test:media` and `test:e2e` therefore launch Chromium with the
+Capacitor User-Agent; that is the configuration the APK actually uses. The
+`428` you see in the UI suite's console is the desktop UA, not a product bug.
+
+**Real streams vs trap clips.** `play-info` returns a 23-second
+"please update your app" MP4 from `macdn.aoneroom.com/other/…` for most
+titles. The genuine signed files live in
+`subject.resourceDetectors[].resolutionList[]` (movies) and in the UGC
+collection (`ugc/video/first-by-subject` → `ugc/collection/download-list`)
+for series, anime and short dramas. `isAdUrl()` drops the trap clips and
+`fetchStreams()` merges all of those sources, preferring H.264 when the
+device reports no HEVC decoder.
+
+**Player controls are deliberately three things only:** quality, fullscreen
+and next. Everything else (lock, fit, speed, subtitle picker, cast, mute) was
+removed on request; the UI suite asserts the control row stays at two buttons.
+
+## Content coverage
+
+Verified playable on the visitor tier: movies, TV series, anime, K-drama and
+shorts/reels. There is **no novel/book API** — neither reference repo exposes
+one and every `/novel/*` probe 404s — so NovelHub keeps its bundled catalogue
+and the deterministic local chapter generator. Shorts are real videos from
+`business/shorts`, surfaced as the "Hot Short TV" rail on Home.
