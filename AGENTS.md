@@ -36,11 +36,11 @@ export PATH=$JAVA_HOME/bin:$PATH
 Tests:
 
 ```bash
-npm run test:unit             # 124 tests: crypto vectors, adapters, live API, ad filtering (Node)
+npm run test:unit             # 131 tests: crypto vectors, adapters, live API, ad filtering (Node)
 npm run test:media            # real-Chromium proof of the WebView media path (Referer fix)
 npm run test:e2e              # boots dist/ and proves a real stream plays end-to-end
-npm run test:ui               # 62 interaction tests (Playwright, 390x844)
-npm test                      # unit + media + e2e + ui
+npm run test:ui               # 74 interaction tests (Playwright, 390x844)
+npm test                      # unit + media + e2e + e2e:series + ui
 ```
 
 `test:media` and `test:e2e` drive a system Chromium (`/usr/bin/chromium`) — the
@@ -125,6 +125,15 @@ Public URL: `https://work-1-cztekbhstulgynne.prod-runtime.all-hands.dev/`
   `background-image` ends up empty and the UI looks blank. See `src/data/catalog.ts`.
   `artwork(seed, w, h)` is the public helper for one-off images. It is now only a
   fallback for titles the API returns without a cover.
+- **Playback starts inline on the detail page (YouTube-style), not on a route.**
+  `src/components/VideoPlayer.tsx` is the single video surface: `variant="inline"`
+  keeps a 16:9 box in the detail hero with episodes/cast below it, `variant="full"`
+  fills the `/player/:id` route. Fullscreen is a state toggle (a `.vp-fs` fixed
+  overlay) plus a landscape lock from `@capacitor/screen-orientation`
+  (`src/lib/orientation.ts`, with the browser Screen Orientation API as fallback) —
+  the Fullscreen API alone is unreliable inside the Android WebView. The Home hero
+  Play button navigates to `/detail/:id?play=1`, which Detail turns into inline
+  playback as soon as the episode list resolves (or immediately if it never does).
 - **The emulator has no KVM here**, so it is extremely slow and the WebView
   renderer can crash (SIGTRAP) under software rendering. A white `screencap` is
   usually the emulator, not the app — a JS-free static page crashes the same way.
