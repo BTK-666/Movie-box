@@ -124,7 +124,7 @@ export default function Home() {
                   )}
                 </div>
                 <div className="hero-actions">
-                  <button className="btn btn-primary" onClick={() => nav(`/player/${hero.id}`)}>
+                  <button className="btn btn-primary" onClick={() => nav(`/detail/${hero.id}?play=1`)}>
                     <IconPlay size={17} /> Play
                   </button>
                   <button

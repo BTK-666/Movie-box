@@ -30,9 +30,8 @@ const play = pg.locator('.btn-primary', {hasText:/Play|Resume/});
 await play.waitFor({timeout:60000});
 console.log('detail ok:', (await pg.evaluate(()=>location.hash)).slice(0,50));
 await play.click();
-await pg.waitForFunction(()=>location.hash.includes('/player/'),{timeout:60000});
-console.log('player:', await pg.evaluate(()=>location.hash));
-await pg.waitForSelector('video',{timeout:30000});
+await pg.waitForSelector('.vp-inline video',{timeout:60000});
+console.log('inline player:', await pg.evaluate(()=>location.hash));
 const r=await pg.evaluate(async()=>{const v=document.querySelector('video');if(!v)return{missing:true};
  const d=Date.now()+60000; while(Date.now()<d){if(v.readyState>=2&&v.duration>0)break;if(v.error)return{err:v.error.code,rs:v.readyState};await new Promise(x=>setTimeout(x,500));}
  try{await v.play()}catch{} await new Promise(x=>setTimeout(x,4000));

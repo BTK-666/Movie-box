@@ -23,9 +23,11 @@ import {
   IconEye,
   IconInfo,
   IconChevronDown,
+  IconFullscreen,
 } from '../components/Icons';
 import { Sheet, SheetOption, Loading, ErrorState, Rail } from '../components/ui';
 import DownloadSheet from '../components/DownloadSheet';
+import VideoPlayer from '../components/VideoPlayer';
 import type { Title } from '../data/catalog';
 
 export default function Detail() {
@@ -44,6 +46,16 @@ export default function Detail() {
   const [dub, setDub] = useState(0);
   const [resolution, setResolution] = useState(0);
 
+  // Inline playback, YouTube-style: the hero turns into a 16:9 player and the
+  // rest of the page stays below it. Fullscreen rotates to landscape.
+  const [playing, setPlaying] = useState(false);
+  const [playEp, setPlayEp] = useState(0);
+
+  // Arriving from a "Play" button (?play=1) starts the inline player as soon as
+  // the episode list resolves, without a second tap.
+  const autoplayWanted = sp.get('play') === '1';
+  const [autoplayDone, setAutoplayDone] = useState(false);
+
   const cached = getDetails(id);
   const { data, loading, error, reload } = useCachedAsync(`detail:${id}`, () => fetchDetails(id), [id], 10 * 60 * 1000);
 
@@ -58,7 +70,7 @@ export default function Detail() {
   const isSeries = !!t && t.seasons > 0;
 
   // Real per-episode files, sizes and durations live in the UGC collection.
-  const { data: ugc } = useAsync(
+  const { data: ugc, loading: ugcLoading } = useAsync(
     () => (isSeries ? fetchUgcCollection(id, season) : Promise.resolve(null)),
     [id, season, isSeries],
   );
@@ -83,6 +95,18 @@ export default function Detail() {
     if (resPinned) return;
     if (resolution === 0 || !resolutions.includes(resolution)) setResolution(resolutions[0]);
   }, [resolutions, resolution, resPinned]);
+
+  // Kick off inline playback for a ?play=1 arrival. A series normally waits for
+  // the episode list so it can start at episode 1 with a real source, but if the
+  // list never arrives (offline, region block) it still starts rather than
+  // leaving the user on a dead detail page.
+  useEffect(() => {
+    if (!autoplayWanted || autoplayDone || !t) return;
+    if (isSeries && episodes.length === 0 && ugcLoading) return;
+    setPlayEp(isSeries ? episodes[0]?.no ?? 1 : 0);
+    setPlaying(true);
+    setAutoplayDone(true);
+  }, [autoplayWanted, autoplayDone, t, isSeries, episodes, ugcLoading]);
 
   // "For you" rail: mainstream titles that are not the current one.
   const { data: related } = useAsync<Title[]>(
@@ -145,8 +169,21 @@ export default function Detail() {
     ? `/player/${t.id}?se=${season}&ep=1&res=${resolution}`
     : `/player/${t.id}?res=${resolution}`;
 
-  const playEpisode = (ep: UgcEpisode) =>
-    nav(`/player/${t.id}?se=${ep.season}&ep=${ep.no}&res=${resolution}`);
+  const startPlay = () => {
+    setPlayEp(isSeries ? 1 : 0);
+    setPlaying(true);
+  };
+
+  const playEpisode = (ep: UgcEpisode) => {
+    setPlayEp(ep.no);
+    setSeason(ep.season);
+    setPlaying(true);
+  };
+
+  const openFullPlayer = () => {
+    if (!playing) return;
+    nav(playUrl);
+  };
 
   const doDownload = (list: UgcEpisode[], res: number) => {
     for (const ep of list) {
@@ -166,19 +203,41 @@ export default function Detail() {
   return (
     <>
       <div className="scroll">
-        <div className="detail-hero" style={{ backgroundImage: `url(${backdropImage(t.backdrop, window.innerWidth)})` }}>
-          <button className="detail-back" onClick={() => nav(-1)} aria-label="Back">
-            <IconBack />
-          </button>
-          <div className="detail-head-actions">
-            <button className="icon-btn" onClick={() => toast('Casting…')} aria-label="Cast">
-              <IconCast size={20} />
-            </button>
-            <button className="icon-btn" onClick={() => toast('Link copied')} aria-label="Share">
-              <IconShare size={20} />
-            </button>
+        {playing ? (
+          <div className="detail-inline-player">
+            <VideoPlayer
+              key={`${t.id}-${season}-${playEp}`}
+              titleId={t.id}
+              season={isSeries ? season : 0}
+              episode={playEp}
+              requestedRes={resolution}
+              variant="inline"
+              onBack={() => setPlaying(false)}
+              onNext={
+                isSeries && episodes.some((e) => e.no === playEp + 1)
+                  ? () => setPlayEp((n) => n + 1)
+                  : undefined
+              }
+            />
           </div>
-        </div>
+        ) : (
+          <div
+            className="detail-hero"
+            style={{ backgroundImage: `url(${backdropImage(t.backdrop, window.innerWidth)})` }}
+          >
+            <button className="detail-back" onClick={() => nav(-1)} aria-label="Back">
+              <IconBack />
+            </button>
+            <div className="detail-head-actions">
+              <button className="icon-btn" onClick={() => toast('Casting…')} aria-label="Cast">
+                <IconCast size={20} />
+              </button>
+              <button className="icon-btn" onClick={() => toast('Link copied')} aria-label="Share">
+                <IconShare size={20} />
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="detail-body fade-in">
           <div className="detail-title-row">
@@ -215,9 +274,14 @@ export default function Detail() {
           )}
 
           <div className="detail-actions">
-            <button className="btn btn-primary" onClick={() => nav(playUrl)}>
-              <IconPlay size={17} /> Play
+            <button className="btn btn-primary" onClick={startPlay}>
+              <IconPlay size={17} /> {playing ? 'Playing' : isSeries ? 'Play S1 E1' : 'Play'}
             </button>
+            {playing && (
+              <button className="btn btn-ghost" onClick={openFullPlayer}>
+                <IconFullscreen size={17} /> Full screen
+              </button>
+            )}
           </div>
 
           <div className="detail-icon-actions">

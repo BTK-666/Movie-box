@@ -44,10 +44,11 @@ await page.click('.poster-card');
 await page.waitForURL(/\/detail\//, { timeout: 60000 });
 console.log('detail:', new URL(page.url()).pathname);
 
-// Press play on the detail screen.
-await page.click('.btn-primary');
-await page.waitForURL(/\/player\//, { timeout: 60000 });
-console.log('player:', new URL(page.url()).pathname);
+// Press play on the detail screen. Playback now starts inline on the detail
+// page (YouTube-style) instead of jumping to a full-screen route.
+await page.click('.detail-actions .btn-primary');
+await page.waitForSelector('.vp-inline video', { timeout: 60000 });
+console.log('inline player on:', new URL(page.url()).pathname);
 
 // Wait for the <video> to receive data.
 const res = await page.evaluate(async () => {

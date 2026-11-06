@@ -38,9 +38,9 @@ ok((await pg.locator('.cast').count()) > 0, 'Detail cast rendered from API');
 
 // 3. Detail play -> player with a real <video>
 await pg.locator('.detail-actions .btn-primary').click();
-ok(await ready('.video-el'), 'Detail play -> player with <video> element');
+ok(await ready('.vp-el'), 'Detail play -> player with <video> element');
 await pg.waitForTimeout(4000);
-const src = await pg.locator('.video-el').getAttribute('src');
+const src = await pg.locator('.vp-el').getAttribute('src');
 ok(/^https?:\/\//.test(src ?? ''), 'Player video src is a real URL: ' + (src ?? '').slice(0, 55));
 ok(!/macdn\.aoneroom\.com\/other\//.test(src ?? ''), 'Player prefers a real stream over the placeholder clip');
 
@@ -75,16 +75,90 @@ ok(
 );
 
 // 4. Player controls
-await pg.locator('.player-center .pc.main').click();
+await pg.locator('.vp-center .pc.main').click();
 await pg.waitForTimeout(300);
 ok(true, 'Player pause clicked without error');
-await pg.locator('.player-tools .pt').first().click();
+await pg.locator('.vp-tools .pt').first().click();
 ok(await ready('.sheet'), 'Player quality sheet opens');
 const qCount = await pg.locator('.sheet-item').count();
 ok(qCount > 0, 'Quality sheet lists real sources (' + qCount + ')');
 await pg.locator('.sheet-item').first().click();
 await pg.waitForTimeout(500);
 ok((await pg.locator('.sheet').count()) === 0, 'Quality sheet closes after select');
+
+// 4b. Inline player: play happens on the detail page, not straight into a
+// full-screen takeover. The detail body must stay in the DOM below the video.
+await pg.goto(B + '/#/', { waitUntil: 'domcontentloaded' });
+await ready('.rail-scroll .poster-card');
+await pg.locator('.rail-scroll .poster-card').first().click();
+await ready('.detail-title');
+await pg.locator('.detail-actions .btn-primary').click();
+await ready('.vp-inline');
+const inlineBox = await pg.locator('.vp-inline').boundingBox();
+const vpBox = await pg.locator('.vp-inline .vp-el').boundingBox();
+ok(!!inlineBox && !!vpBox, 'Inline player renders on the detail page');
+ok(
+  inlineBox && Math.abs(inlineBox.width / inlineBox.height - 16 / 9) < 0.2,
+  'Inline player keeps a 16:9 box (' + (inlineBox ? (inlineBox.width / inlineBox.height).toFixed(2) : 'n/a') + ')',
+);
+ok(
+  (await pg.locator('.detail-body').count()) > 0,
+  'Detail body is still visible below the inline player',
+);
+ok(
+  (await pg.locator('.detail-title').boundingBox())?.y > (inlineBox?.y ?? 0),
+  'Detail content sits below the video, like YouTube',
+);
+ok(
+  (await pg.locator('.detail-inline-player .vp-fs').count()) === 0,
+  'Inline playback does not start fullscreen',
+);
+
+// 4c. Fullscreen toggle: the stage becomes a fixed overlay (and would rotate
+// the device; the browser build cannot rotate, so assert the overlay only).
+await pg.locator('.vp-tools .pt').last().click();
+await pg.waitForTimeout(400);
+ok(
+  (await pg.locator('.vp-fs').count()) > 0,
+  'Fullscreen button expands the stage to a full-screen overlay',
+);
+const fsBox = await pg.locator('.vp-stage').boundingBox();
+const vw = pg.viewportSize();
+ok(
+  !!fsBox && fsBox.width >= (vw?.width ?? 0) - 2,
+  'Full-screen stage fills the viewport width (' + fsBox?.width + ')',
+);
+await pg.locator('.vp-tools .pt').last().click();
+await pg.waitForTimeout(400);
+ok((await pg.locator('.vp-fs').count()) === 0, 'Exiting fullscreen returns to the inline box');
+
+// 4d. Closing the inline player restores the hero artwork. Controls auto-hide,
+// so tap the stage first to bring them back.
+await pg.locator('.vp-stage').click({ position: { x: 10, y: 10 } });
+await pg.waitForTimeout(300);
+await pg.locator('.vp-top .icon-btn').first().click();
+await pg.waitForTimeout(300);
+ok(
+  (await pg.locator('.vp').count()) === 0 && (await pg.locator('.detail-hero').count()) > 0,
+  'Closing the inline player restores the detail hero',
+);
+
+// 4e. A "Play" arrival (?play=1) opens the detail page with inline playback
+// already running — never a straight full-screen takeover. Uses a rail title
+// (always fetchable) rather than the hero, whose id is region-gated in the
+// browser build.
+await pg.goto(B + '/#/', { waitUntil: 'domcontentloaded' });
+await ready('.rail-scroll .poster-card');
+await pg.locator('.rail-scroll .poster-card').first().click();
+await ready('.detail-title');
+const playId = (pg.url().match(/\/detail\/(\d+)/) ?? [])[1];
+await pg.goto(`${B}/#/detail/${playId}?play=1`, { waitUntil: 'domcontentloaded' });
+ok(await ready('.vp-inline'), 'Play arrival starts the inline player without a tap');
+ok(
+  (await pg.locator('.detail-body').count()) > 0 && (await pg.locator('.vp-fs').count()) === 0,
+  'Play arrival keeps the detail body visible and stays out of fullscreen',
+);
+ok(await ready('.vp-el', 20000), 'Play arrival resolves a video source');
 
 // 5. Search (live)
 await pg.goto(B + '/#/search', { waitUntil: 'domcontentloaded' });
@@ -193,7 +267,7 @@ for (let i = 0; i < 3; i++) {
   await ready('.detail-title');
   await pg.locator('.detail-actions .btn-primary').click();
   await pg.waitForTimeout(2500);
-  const psrc = await pg.locator('.video-el').getAttribute('src').catch(() => null);
+  const psrc = await pg.locator('.vp-el').getAttribute('src').catch(() => null);
   ok(!/macdn\.aoneroom\.com\/other\//.test(psrc ?? ''), `Feed title ${i + 1} player src is not the ad clip`);
 }
 ok(adRequests.length === 0, 'The upgrade promo clip was never requested (' + adRequests.length + ')');
